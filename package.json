@@ -1,0 +1,92 @@
+{
+  "name": "unnamed-css-preprocessor",
+  "version": "1.0.0",
+  "main": "lib/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/4Catalyzer/unnamed-css-preprocessor.git"
+  },
+  "author": "4Catalyzer",
+  "license": "MIT",
+  "scripts": {
+    "build": "4c build src",
+    "format": "4c format src './*'",
+    "lint": "4c lint src './*'",
+    "prepublishOnly": "yarn run build",
+    "release": "4c release",
+    "tdd": "jest --watch",
+    "test": "yarn lint && jest && yarn typecheck",
+    "testonly": "jest",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "prettier": "@4c/prettier-config",
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "lint-staged": {
+    "*": [
+      "yarn 4c lint --fix",
+      "git add"
+    ]
+  },
+  "jest": {
+    "preset": "@4c/jest-preset",
+    "testEnvironment": "node",
+    "setupFilesAfterEnv": [
+      "./test/setupAfterEnv.ts"
+    ]
+  },
+  "release": {
+    "publishDir": "lib"
+  },
+  "devDependencies": {
+    "@4c/babel-preset": "^7.1.0",
+    "@4c/cli": "^2.0.1",
+    "@4c/jest-preset": "^1.4.5",
+    "@4c/prettier-config": "^1.1.0",
+    "@4c/tsconfig": "^0.3.1",
+    "@babel/cli": "^7.2.3",
+    "@babel/core": "^7.2.2",
+    "@babel/preset-typescript": "^7.8.3",
+    "@types/jest": "^25.2.3",
+    "@types/node": "*",
+    "@typescript-eslint/eslint-plugin": "^2.19.2",
+    "@typescript-eslint/parser": "^2.34.0",
+    "eslint": "^6.8.0",
+    "eslint-config-4catalyzer": "^1.1.0",
+    "eslint-config-4catalyzer-jest": "^2.0.4",
+    "eslint-config-4catalyzer-typescript": "^1.1.6",
+    "eslint-config-prettier": "^6.10.0",
+    "eslint-plugin-import": "^2.20.1",
+    "eslint-plugin-jest": "^23.7.0",
+    "eslint-plugin-prettier": "^3.1.2",
+    "husky": "^3.0.9",
+    "jest": "^25.1.0",
+    "lint-staged": "^9.4.2",
+    "memfs": "^3.2.0",
+    "pegjs": "^0.10.0",
+    "prettier": "^2.0.1",
+    "ts-pegjs": "^0.2.6",
+    "typescript": "^3.7.5"
+  },
+  "dependencies": {
+    "@modular-css/processor": "^25.7.0",
+    "@types/lodash": "^4.14.153",
+    "dependency-graph": "^0.9.0",
+    "khroma": "^1.1.0",
+    "lodash": "^4.17.15",
+    "postcss": "^7.0.30",
+    "postcss-scss": "^2.1.1",
+    "postcss-selector-parser": "^6.0.2",
+    "postcss-value-parser": "^4.1.0",
+    "postcss-values-parser": "^3.2.1",
+    "resolve-from": "^5.0.0",
+    "synchronous-promise": "^2.0.12",
+    "unique-slug": "^2.0.2"
+  }
+}

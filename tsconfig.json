@@ -1,0 +1,9 @@
+{
+  "extends": "@4c/tsconfig/node",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node", "jest"],
+    "lib": ["es2020.string"]
+  },
+  "include": ["src", "test"]
+}

@@ -1,0 +1,20 @@
+{
+  "plugins": ["prettier"],
+  "extends": [
+    "4catalyzer",
+    "4catalyzer-jest",
+    "prettier",
+    "4catalyzer-typescript"
+  ],
+  "env": {
+    "node": true
+  },
+  "rules": {
+    "prettier/prettier": "error",
+    "global-require": "off",
+    "import/no-dynamic-require": "off",
+    "no-param-reassign": "off",
+    "no-underscore-dangle": "off",
+    "no-multi-assign": "off"
+  }
+}
