@@ -26,17 +26,16 @@ comment "comment"
 line_comment "silent comment"
   = "//" [^\n\r]* eol_sequence
 
-ws "whitespace"
-  = [ \t\r\n\f]+
 
 _ "whitespace"
   = [ \t]* line_comment
-  / [ \t\n\r]* comment* [ \t\n\r]*
+  / [ \t\n\r\f]* comment* [ \t\n\r\f]*
 
-__ "whitespace"
-  = [ \t,]* line_comment
-  / [ \t\n\r,]* comment* [ \t\n\r,]*
-
+__ "required whitespace"
+  = [ \t]* line_comment
+  / [ \t\r\n\f]* comment* [ \t\r\n\f]*
+  / [ \t\r\n\f]* comment+ [ \t\r\n\f]+
+  / [ \t\r\n\f]+
 
 string "string"
     = '"' chars:([^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)* '"' { return chars.join(""); }
@@ -47,8 +46,8 @@ unquoted_url
   = chars:([!#$%&*-\[\]-~] / nonascii / escape)* { return chars.join(""); }
 
 uri "uri"
-  = comment* "url"i "(" ws url:string ws ")" { return url; }
-  / comment* "url"i "(" ws url:unquoted_url ws ")"    { return url; }
+  = comment* "url"i "(" _ url:string _ ")" { return url; }
+  / comment* "url"i "(" _ url:unquoted_url _ ")"    { return url; }
 
 hex_digit
   = [0-9a-f]i
@@ -130,32 +129,32 @@ Separator
 
 MinusOp "minus"
   = "-"       { return new Ast.Operator("-"); }
-  / ws+ "-" ws+ { return new Ast.Operator("-"); }
+  / __ "-" __ { return new Ast.Operator("-"); }
 
 
 Operator
-  = _ "/" _  { return new Ast.Operator("/"); }
-  / _ "+" _  { return new Ast.Operator("+"); }
-  / MinusOp
-  / _ "*" _  { return new Ast.Operator("*"); }
-  / _ ">" _  { return new Ast.Operator(">"); }
-  / _ ">=" _ { return new Ast.Operator(">="); }
-  / _ "<" _  { return new Ast.Operator("<"); }
-  / _ "<=" _ { return new Ast.Operator("<="); }
-  / _ "==" _ { return new Ast.Operator("=="); }
-  / _ "!=" _ { return new Ast.Operator("!="); }
+  = __ "/" __  { return new Ast.Operator("/"); }
+  / __ "+" __  { return new Ast.Operator("+"); }
+  / __ "-" __ { return new Ast.Operator("-"); }
+  / __ "*" __  { return new Ast.Operator("*"); }
+  / __ ">" __  { return new Ast.Operator(">"); }
+  / __ ">=" __ { return new Ast.Operator(">="); }
+  / __ "<" __  { return new Ast.Operator("<"); }
+  / __ "<=" __ { return new Ast.Operator("<="); }
+  / __ "==" __ { return new Ast.Operator("=="); }
+  / __ "!=" __ { return new Ast.Operator("!="); }
 
 
 OperatorNoDivision
-  = "+" _  { return new Ast.Operator("+"); }
-  / MinusOp
-  / "*" _  { return new Ast.Operator("*"); }
-  / ">" _  { return new Ast.Operator(">"); }
-  / ">=" _ { return new Ast.Operator(">="); }
-  / "<" _  { return new Ast.Operator("<"); }
-  / "<=" _ { return new Ast.Operator("<="); }
-  / "==" _ { return new Ast.Operator("=="); }
-  / "!=" _ { return new Ast.Operator("!="); }
+  = __ "+" __  { return new Ast.Operator("+"); }
+  / __ "-" __ { return new Ast.Operator("-"); }
+  / __ "*" __  { return new Ast.Operator("*"); }
+  / __ ">" __  { return new Ast.Operator(">"); }
+  / __ ">=" __ { return new Ast.Operator(">="); }
+  / __ "<" __  { return new Ast.Operator("<"); }
+  / __ "<=" __ { return new Ast.Operator("<="); }
+  / __ "==" __ { return new Ast.Operator("=="); }
+  / __ "!=" __ { return new Ast.Operator("!="); }
 
 
 Ident
@@ -296,7 +295,7 @@ MathExpression
   }
 
 ListExpression
-  = BinaryExpression / Value
+  = Value
 
 List
   = CommaSeparatedList
@@ -314,7 +313,7 @@ List
 
 
 SpaceSeparatedList
-  = head:ListExpression tail:(ws expr:ListExpression { return expr })+ {
+  = head:ListExpression tail:(__ expr:ListExpression { return expr })+ {
     return new Ast.List([head].concat(tail), new Ast.Separator(' '))
   }
 
@@ -453,7 +452,7 @@ ExportSpecifiers
 // Values
 
 values
-  = __ expr:(List ) __ { return expr }
+  = _ expr:(List ) _ { return expr }
 
 declaration
   = InterpolatedIdent
