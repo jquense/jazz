@@ -1,8 +1,10 @@
 /* eslint-disable no-return-assign */
+import Tracer from 'pegjs-backtrace';
 import postcss from 'postcss';
 
 import * as Ast from './Ast';
 import { IParseOptions, parse } from './parser';
+// @ts-ignore
 
 function getOrAdd<T extends postcss.Node, U>(
   map: WeakMap<T, U>,
@@ -25,6 +27,14 @@ class Parser {
   private importsCache = new WeakMap<postcss.AtRule, Ast.Import>();
 
   private exportsCache = new WeakMap<postcss.AtRule, Ast.Export>();
+
+  private trace: boolean;
+
+  constructor({ trace }: { trace?: boolean } = {}) {
+    this.trace = !!trace;
+
+    //= trace ?  : { trace() {} };
+  }
 
   static get(root: postcss.Root): Parser {
     // @ts-ignore
@@ -60,7 +70,13 @@ class Parser {
   }
 
   parse(input: string, opts: IParseOptions) {
-    return parse(input, opts);
+    const tracer = this.trace ? new Tracer(input) : { trace() {} };
+    try {
+      return parse(input, { tracer, ...opts });
+    } catch (err) {
+      console.log(tracer.getBacktraceString());
+      throw err;
+    }
   }
 }
 

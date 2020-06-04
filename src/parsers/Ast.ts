@@ -67,6 +67,18 @@ type iterator = (node: Node | Container, idx: number) => void | false;
 
 export const isNode = (node: any): node is Node => node instanceof Node;
 
+export type Value =
+  | Color
+  | Numeric
+  | StringLiteral
+  | StringTemplate
+  | Url
+  | Calc
+  | Function
+  | Variable
+  | InterpolatedIdent
+  | Ident;
+
 export type ExpressionTerm =
   | Operator
   | Separator
@@ -296,9 +308,9 @@ export class BinaryExpression extends Container<
     tail: Array<[Operator, BinaryExpressionTerm]>,
   ) {
     let result = head;
-    for (let [op, right] of tail) {
-      if (right.type === 'calc')
-        right = right.nodes[0] as BinaryExpressionTerm;
+    for (const [op, right] of tail) {
+      // if (right.type === 'calc')
+      //   right = right.nodes[0] as BinaryExpressionTerm;
 
       result = new BinaryExpression(result, op, right);
     }
@@ -558,10 +570,11 @@ export class Ident extends Node {
   }
 }
 
-export class Function extends Container<ExpressionTerm | Expression> {
+export class Function extends Container<Value | BinaryExpression | Separator> {
   type = 'function' as const;
 
-  constructor(public name: Ident, params: Expression) {
+  constructor(public name: Ident, params: List) {
+    // console.log('HI', params);
     super(params.nodes);
   }
 
@@ -688,12 +701,19 @@ export class InterpolatedIdent extends Container {
   }
 }
 
-export class List extends Container {
+export class List extends Container<Value | BinaryExpression> {
   type = 'list' as const;
 
-  constructor(public nodes: Node[], public separator: string = ',') {
+  constructor(
+    public nodes: Array<Value | BinaryExpression>,
+    public separator?: Separator,
+  ) {
     super(nodes);
   }
+
+  // get elements() {
+  //   return this.nodes.filter((n) => n.type !== 'separator');
+  // }
 }
 
 export type MathExpressionTerm =

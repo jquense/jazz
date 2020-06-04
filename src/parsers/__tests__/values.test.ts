@@ -3,12 +3,14 @@
 import Parser from '..';
 import {
   Function as AstFunction,
+  BinaryExpression,
   Block,
   Calc,
   DOUBLE,
   Expression,
   Ident,
   InterpolatedIdent,
+  List,
   MathExpression,
   Numeric,
   Operator,
@@ -25,11 +27,12 @@ function op(str: Operators) {
 }
 
 const comma = () => new Separator(',');
+const space = () => new Separator(' ');
 
 describe('parser: values', () => {
   let parse: (input: string) => any;
   beforeEach(() => {
-    const parser = new Parser();
+    const parser = new Parser({ trace: true });
     parse = (input: string) => parser.parse(input, { startRule: 'values' });
   });
 
@@ -51,11 +54,11 @@ describe('parser: values', () => {
     ['foo.$bar', new Variable('bar', 'foo')],
     [
       "$bar + 'blue'",
-      new Expression([
+      new BinaryExpression(
         new Variable('bar'),
         op('+'),
         new StringLiteral('blue', SINGLE),
-      ]),
+      ),
     ],
   ])('parses variables %s', (input, expected) => {
     expect(parse(input)).toEqual(expected);
@@ -77,23 +80,18 @@ describe('parser: values', () => {
       'rgba(1,2,3)',
       new AstFunction(
         new Ident('rgba'),
-        new Expression([
-          new Numeric(1),
-          comma(),
-          new Numeric(2),
-          comma(),
-          new Numeric(3),
-        ]),
+        new List([new Numeric(1), new Numeric(2), new Numeric(3)], comma()),
       ),
     ],
     [
       'color.rgba(1 2 3)',
       new AstFunction(
         new Ident('rgba', 'color'),
-        new Expression([new Numeric(1), new Numeric(2), new Numeric(3)]),
+        new List([new Numeric(1), new Numeric(2), new Numeric(3)], space()),
       ),
     ],
   ])('parses functions %s', (input, expected) => {
+    // expect(parse(input)).toEqual({});
     expect(parse(input)).toEqual(expected);
   });
 
@@ -182,6 +180,22 @@ describe('parser: values', () => {
     expect(parse(input)).toEqual(expected);
   });
 
+  it.only.each([
+    ['bar foo', new List([new Ident('bar'), new Ident('foo')], space())],
+    ['bar, baz', new List([new Ident('bar'), new Ident('baz')], comma())],
+
+    [
+      '1px -1px',
+      new List([new Numeric(1, 'px'), new Numeric(-1, 'px')], space()),
+    ],
+    [
+      '1px-1px',
+      new List([new Numeric(1, 'px'), new Numeric(-1, 'px')], space()),
+    ],
+  ])('parses lists %s', (input, expected) => {
+    expect(parse(input)).toEqual(expected);
+  });
+
   it.each([
     [
       '1cm -1px',
@@ -189,12 +203,12 @@ describe('parser: values', () => {
     ],
 
     [
-      '(1cm / 2rem) + "hi"',
+      '(1cm + 2rem) + "hi"',
       new Expression([
         new Block(
           new Expression([
             new Numeric(1, 'cm'),
-            op('/'),
+            op('+'),
             new Numeric(2, 'rem'),
           ]),
         ),
@@ -204,7 +218,7 @@ describe('parser: values', () => {
     ],
 
     [
-      'calc(1px + #{20rem - $baz})',
+      'foo(1px + #{20rem - $baz})',
       new AstFunction(
         new Ident('calc'),
         new Expression([

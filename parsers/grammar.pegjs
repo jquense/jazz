@@ -20,10 +20,11 @@ eol_sequence "end of line"
   / "\r"
   / "\f"
 
-comment
+comment "comment"
   = "/*" [^*]* "*"+ ([^/*] [^*]* "*"+)* "/"
 
-line_comment = "//" [^\n\r]* eol_sequence
+line_comment "silent comment"
+  = "//" [^\n\r]* eol_sequence
 
 ws "whitespace"
   = [ \t\r\n\f]+
@@ -113,16 +114,41 @@ function "function"
 // ---------------
 
 
+CommaSep
+   = "," _  { return new Ast.Separator(",") }
+
+SlashSep
+  = "/" _  { return new Ast.Separator("/") }
+
+SpaceSep
+  = " " _  { return new Ast.Separator(" ") }
 
 Separator
   = "," _  { return new Ast.Separator(",") }
   / "/" _  { return new Ast.Separator(",") }
 
 
+MinusOp "minus"
+  = "-"       { return new Ast.Operator("-"); }
+  / ws+ "-" ws+ { return new Ast.Operator("-"); }
+
+
 Operator
-  = "/" _  { return new Ast.Operator("/"); }
-  / "+" _  { return new Ast.Operator("+"); }
-  / "-" _  { return new Ast.Operator("-"); }
+  = _ "/" _  { return new Ast.Operator("/"); }
+  / _ "+" _  { return new Ast.Operator("+"); }
+  / MinusOp
+  / _ "*" _  { return new Ast.Operator("*"); }
+  / _ ">" _  { return new Ast.Operator(">"); }
+  / _ ">=" _ { return new Ast.Operator(">="); }
+  / _ "<" _  { return new Ast.Operator("<"); }
+  / _ "<=" _ { return new Ast.Operator("<="); }
+  / _ "==" _ { return new Ast.Operator("=="); }
+  / _ "!=" _ { return new Ast.Operator("!="); }
+
+
+OperatorNoDivision
+  = "+" _  { return new Ast.Operator("+"); }
+  / MinusOp
   / "*" _  { return new Ast.Operator("*"); }
   / ">" _  { return new Ast.Operator(">"); }
   / ">=" _ { return new Ast.Operator(">="); }
@@ -130,7 +156,6 @@ Operator
   / "<=" _ { return new Ast.Operator("<="); }
   / "==" _ { return new Ast.Operator("=="); }
   / "!=" _ { return new Ast.Operator("!="); }
-
 
 
 Ident
@@ -147,96 +172,110 @@ NamespacedIdent
 
 
 Variable
-  = comment* '$' name:ident _ { return new Ast.Variable(name) }
+  = comment* '$' name:ident { return new Ast.Variable(name) }
 
 
 NamespacedVariable
-  = comment* namespace:ident '.$' name:ident _ {
+  = comment* namespace:ident '.$' name:ident {
     return new Ast.Variable(name, namespace)
   }
 
 
 Color
-  = comment* "#" name:name _ {
+  = comment* "#" name:name {
     return new Ast.Color(`#${name}`)
   }
 
 
 Numeric
-  = comment* value:num unit:('%' / ident { return text() })? _ {
+  = comment* value:num unit:('%' / ident { return text() })? {
     return new Ast.Numeric(value, unit)
   }
 
 
 StringTemplate "templated string"
-  = comment* '"' chars:(Interpolation / [^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)* '"' _ {
+  = comment* '"' chars:(Interpolation / [^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)* '"' {
     return Ast.StringTemplate.fromTokens(chars, '"')
   }
-  / comment* "'" chars:(Interpolation / [^\n\r\f\\'] /  "\\" nl:eol_sequence { return ""; } / escape)* "'" _ {
+  / comment* "'" chars:(Interpolation / [^\n\r\f\\'] /  "\\" nl:eol_sequence { return ""; } / escape)* "'" {
     return Ast.StringTemplate.fromTokens(chars, "'")
   }
 
 
 Url
-  = comment* uri _ { return new Ast.Url(value) }
+  = comment* uri  { return new Ast.Url(value) }
 
 
-Block
-  = comment* "{" _ expr:Expression _ "}" _ { return new Ast.Block(expr, ['{','}']) }
-  / comment* "[" _ expr:Expression _ "]" _ { return new Ast.Block(expr, ['[',']']) }
-  / comment* "(" _ expr:Expression _ ")" _ { return new Ast.Block(expr, ['(',')']) }
+// Block
+//   = comment* "{" _ expr:Expression _ "}"  { return new Ast.Block(expr, ['{','}']) }
+//   / comment* "[" _ expr:Expression _ "]" { return new Ast.Block(expr, ['[',']']) }
+//   / comment* "(" _ expr:Expression _ ")" { return new Ast.Block(expr, ['(',')']) }
 
 
 Function  "function"
-  = comment* name:(NamespacedIdent/ Ident) "(" _ params:Expression _ ")" _ {
+  = comment* name:(NamespacedIdent/ Ident) "(" _ params:List _ ")" {
     // we need to re-wrap the expression if it was reduced to it's lone item
-    return new Ast.Function(name, params.type !== 'expression'
-      ? new Ast.Expression([params])
+    return new Ast.Function(name, params.type !== 'list'
+      ? new Ast.List([params])
       : params
     );
   }
 
 Interpolation "interpolation"
-  = '#{' _ expr:Expression _'}' { return new Ast.Interpolation(expr) }
+  = '#{' _ expr:List _'}' { return new Ast.Interpolation(expr) }
 
 
-InterpolatedIdent
-  = comment* head:(ident / prefix:$"-"? Interpolation) tail:(name / Interpolation)* _ {
+InterpolatedIdent "interpolated identifier"
+  = comment* head:(ident / prefix:$"-"? Interpolation) tail:(name / Interpolation)* {
     return Ast.InterpolatedIdent.fromTokens([].concat(head, tail))
   }
 
 
-Calc
-  = comment* "calc("i _ value:MathExpression _ ")" _ { return new Ast.Calc(value) }
+Calc "calc()"
+  = comment* "calc("i _ value:MathExpression _ ")"  { return new Ast.Calc(value) }
 
 
-ExpressionTerm
+// ExpressionTerm
+//   = Value
+
+
+
+// Expression
+//   = head:ExpressionTerm tail:(Separator? ExpressionTerm)* {
+//     let result = [head]
+//     for (let [operator, term] of tail) {
+//       if (operator) result.push(operator)
+
+//       // flatten bare interpolations
+//       term.type === 'interpolation'
+//         ? result.push(...term.value.nodes)
+//         : result.push(term)
+//     }
+
+//     return result.length === 1 ? result[0] : new Ast.Expression(result)
+//   }
+
+Value
   = Color
   / Numeric
   / StringTemplate
   / Url
   / Calc
   / Function
-  / Block
   / NamespacedVariable
   / Variable
   / NamespacedIdent
   / InterpolatedIdent
 
 
-Expression
-  = head:ExpressionTerm tail:((Operator / Separator)? ExpressionTerm)* {
-    let result = [head]
-    for (let [operator, term] of tail) {
-      if (operator) result.push(operator)
+BinaryExpressionTerm
+  = Value
+  / comment* "(" _ expr:BinaryExpression _ ")" _ { return expr }
 
-      // flatten bare interpolations
-      term.type === 'interpolation'
-        ? result.push(...term.value.nodes)
-        : result.push(term)
-    }
 
-    return result.length === 1 ? result[0] : new Ast.Expression(result)
+BinaryExpression
+   = head:BinaryExpressionTerm tail:(OperatorNoDivision BinaryExpressionTerm _)+ _ {
+    return Ast.BinaryExpression.fromTokens(head, tail)
   }
 
 
@@ -246,17 +285,48 @@ MathExpressionTerm
   / Function
   / NamespacedVariable
   / Variable
-  / comment* "(" _ expr:MathExpression _ ")" _ {
+  / comment* "(" _ expr:MathExpression _ ")" {
     return expr
   }
 
 
-
 MathExpression
-   = head:MathExpressionTerm tail:(Operator MathExpressionTerm)* {
+   = head:MathExpressionTerm _ tail:(Operator MathExpressionTerm _)* _ {
     return Ast.MathExpression.fromTokens(head, tail)
   }
 
+ListExpression
+  = BinaryExpression / Value
+
+List
+  = CommaSeparatedList
+  / SpaceSeparatedList
+  / ListExpression
+  //
+
+  // = head:ListExpression tail:(Separator? ListExpression)* {
+  //   return tail.length
+  //     ? new Ast.List([head].concat(
+  //         ...tail.map(([sep, expr]) =>[sep ?? new Ast.Separator(' '), expr])
+  //       ))
+  //     : head
+  // }
+
+
+SpaceSeparatedList
+  = head:ListExpression tail:(ws expr:ListExpression { return expr })+ {
+    return new Ast.List([head].concat(tail), new Ast.Separator(' '))
+  }
+
+CommaSeparatedList
+  = head:ListExpression _ tail:(CommaSep expr:ListExpression _ { return expr })+ {
+     return new Ast.List([head].concat(tail), new Ast.Separator(','))
+  }
+
+// SlashSeparatedList
+//   = head:ListExpression tail:("/" _ ListExpression)* {
+//     return [head, ...tail]
+//   }
 
 // expression_list
 //   = head:expression tail:(',' _ expr:expression? { return expr })* {
@@ -383,7 +453,7 @@ ExportSpecifiers
 // Values
 
 values
-  = __ expr:(Expression ) __ { return expr }
+  = __ expr:(List ) __ { return expr }
 
 declaration
   = InterpolatedIdent

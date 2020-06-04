@@ -22,6 +22,7 @@ const generate = async () => {
       tspegjs: {
         noTslint: true,
       },
+      trace: true,
       plugins: [require('ts-pegjs')],
     });
 
