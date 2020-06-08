@@ -7,7 +7,7 @@ export type VariableMember = {
 
 export type FunctionMember = {
   source?: string;
-  fn: (...args: Ast.Expression[]) => Ast.ReducedExpression;
+  fn: (...args: Ast.ListItem[]) => Ast.ReducedExpression;
 };
 
 export type Member = VariableMember | FunctionMember;

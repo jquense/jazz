@@ -1,23 +1,26 @@
-/* eslint-disable @typescript-eslint/no-use-before-define */
-import { notDeepEqual } from 'assert';
-
-import { ChildNode } from 'postcss';
-import Operator from 'postcss-values-parser/lib/nodes/Operator';
-
 import * as Ast from '../parsers/Ast';
-import { Value } from '../types';
+import * as math from '../parsers/math';
 import Scope from './Scope';
 
-export class Reducer {
-  private inCalc = false;
+// export function canCalcBeReduced(calc: Ast.Calc) {
+//   if (calc)
+// }
 
-  private inCalc = false;
+type Reduceable = Ast.ListItem | Ast.Root | Ast.BinaryExpressionTerm;
+
+type MathExpression = Ast.BinaryExpression & {
+  left: math.Term;
+  right: math.Term;
+};
+
+type Resolved<T> = T extends Ast.Variable ? never : T;
+
+export class Reducer {
+  private inCalc = 0;
 
   constructor(private scope: Scope) {}
 
-  reduce(
-    node: Ast.Expression | Ast.ExpressionTerm | Ast.Root,
-  ): Ast.ReducedExpression {
+  reduce(node: Reduceable): Resolved<Reduceable> {
     const { scope } = this;
 
     switch (node.type) {
@@ -27,53 +30,46 @@ export class Reducer {
         if (!variable) {
           throw new Error(`Variable not defined ${node.toString()}`);
         }
-        const next = variable.node.clone();
-        node.replaceWith(next);
-        return next;
+        return variable.node.clone();
       }
       case 'numeric':
       case 'string':
       case 'color':
       case 'url':
       case 'operator':
-        // return node;
-        break;
-      case 'block':
+        return node;
+
       case 'root':
-      case 'interpolation':
+      case 'list':
         this.reduceChildren(node);
-
         break;
-      case 'expression': {
-        for (const [child, idx] of node.children()) {
-          const reduced = this.reduce(child);
+      case 'unary-expression':
+        return this.reduceUnaryExpression(node);
+      case 'binary-expression':
+        return this.reduceBinaryExpression(node);
+      case 'calc': {
+        try {
+          this.inCalc++;
+          // console.log(`IN ${this.inCalc}`);
+          return this.reduce(this.inCalc > 1 ? node.expression : node);
+        } finally {
+          this.inCalc--;
+          // console.log(`OUT ${this.inCalc}`);
         }
-
-        if (node.nodes.length === 1) {
-          const first = node.nodes[0];
-          node.replaceWith(first);
-          return first as Ast.ReducedExpression;
-        }
-
-        break;
       }
+      case 'math-function':
+        this.reduceChildren(node);
+        // console.log('MATH', node);
+        return math[node.name](node.nodes as math.Term[], !this.inCalc);
       case 'function':
-        this.reduceFunction(node);
+        return this.reduceFunction(node);
 
-        break;
       case 'interpolated-ident': {
         this.reduceChildren(node);
 
-        const next = new Ast.Ident(node.toString());
-
-        node.replaceWith(next);
-        return next;
-        break;
+        return new Ast.Ident(node.toString());
       }
       default:
-      // console.log('hi', node.type);
-      // return node;
-      // throw new Error(`nope on  ${node.type}`);
     }
 
     return node as any;
@@ -84,60 +80,84 @@ export class Reducer {
 
     // assume a css function grumble
     if (!fn) {
-      node.replaceWith(new Ast.Ident(node.toString()));
-      return;
+      return node;
     }
 
-    const params = new Ast.Root(node.split(','));
+    node.separateArgumentsBy(',');
 
-    this.reduceChildren(params);
+    this.reduceChildren(node);
 
-    node.replaceWith(fn.fn(...params.nodes));
+    return fn.fn(...node.nodes);
   }
 
-  reduceChildren(
-    node: Ast.Container,
-    fn?: (node: Ast.ReducedExpression) => void,
-  ) {
-    for (const [child] of node.children()) {
-      const reduced = this.reduce(child as Ast.ExpressionTerm);
-      fn?.(reduced);
+  reduceChildren(node: Ast.Container) {
+    node.nodes = node.nodes.map((t) => this.reduce(t as any));
+  }
+
+  reduceUnaryExpression(node: Ast.UnaryExpression) {
+    const { inCalc } = this;
+    let argument = this.reduce(node.argument) as Ast.BinaryExpressionTerm;
+
+    if (!math.isMathTerm(argument)) {
+      throw new Error(`${argument} is not a number`);
     }
+
+    if (node.operator === 'not') {
+      if (inCalc)
+        throw new Error(
+          `Only arithmetic is allowed in a CSS calc() function not \`${node}\` which would produce a Boolean, not a number`,
+        );
+
+      throw new Error('not implemented');
+      // return this.evaluateTruthy()
+    }
+
+    if (node.operator === '-') {
+      if (argument.type === 'numeric') argument.value *= -1;
+      else if (this.inCalc)
+        argument = new Ast.Calc(
+          new Ast.BinaryExpression(
+            new Ast.Numeric(-1),
+            new Ast.Operator('*'),
+            argument.type === 'calc' ? argument.expression : argument,
+          ),
+        );
+    }
+
+    return argument;
   }
 
-  // reduceMath(node: Ast.MathExpressionTerm) {
-  //   switch (node.type){
-  //     case 'math-expression': {
-  //     const right = this.reduceMath(node.right);
-  //     const left = this.reduceMath(node.left);
+  reduceBinaryExpression(node: Ast.BinaryExpression) {
+    const { inCalc } = this;
 
-  //     switch (node.operator.value) {
-  //       case '+':
-  //       case '-':
-  //         this.reduceMath();
-  //         break;
-  //       default:
-  //     }
-  //   }
-  //   case 'function'
-  // }
+    const left = this.reduce(node.left) as ResolvedBinaryTerm;
+    const right = this.reduce(node.right) as ResolvedBinaryTerm;
+    const op = node.operator.value;
+
+    if (math.isArithmeticOperator(op)) {
+      if (!math.isMathTerm(left) || !math.isMathTerm(right)) {
+        throw new Error(
+          `Cannot evaluate ${node} (evaluated as: ${left} ${op} ${right}) because some terms are not numerical.`,
+        );
+      }
+
+      if (op === '+') return math.add(left, right, !inCalc);
+      if (op === '-') return math.subtract(left, right, !inCalc);
+      if (op === '*') return math.multiply(left, right, !inCalc);
+      if (op === '/') return math.divide(left, right, !inCalc);
+      if (op === '%') return math.mod(left, right);
+      if (op === '**') return math.pow(left, right);
+    } else if (inCalc) {
+      throw new Error(
+        `Only arithmetic is allowed in a CSS calc() function not ${node}`,
+      );
+    }
+
+    throw new Error(`not implemented: ${math.isArithmeticOperator(op)}`);
+  }
 }
 
-export function evaluate(expr: Ast.Container, values: Record<string, Value>) {
-  // for (const [valueNode, controller] of expr.children()) {
-  //   valueNode;
-  // }
-
-  for (const [valueNode, controller] of expr.ancestors()) {
-    console.log(valueNode.type);
-
-    if (valueNode.type === 'variable')
-      valueNode.replaceWith(new Ast.Ident(values[valueNode.name].value));
-
-    if (valueNode.type === 'function') {
-      controller.skip();
-      evaluate(valueNode, values);
-    }
-  }
-  return expr.toString();
-}
+type ResolvedBinaryTerm = Exclude<
+  Ast.BinaryExpressionTerm,
+  Ast.Function | Ast.Variable
+>;

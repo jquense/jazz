@@ -1,6 +1,6 @@
 export default function interleave<T>(
-  strings: string[],
-  interpolations: T[],
+  strings: readonly string[],
+  interpolations: readonly T[],
 ): Array<T | string> {
   const result: Array<T | string> = [strings[0]];
 

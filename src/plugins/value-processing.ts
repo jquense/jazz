@@ -1,5 +1,3 @@
-import postcss from 'postcss';
-
 import Parser from '../parsers';
 import * as Ast from '../parsers/Ast';
 import { PostcssPlugin } from '../types';
@@ -20,21 +18,16 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
 
   css.walk((node) => {
     if (node.type === 'decl') {
-      const parsed = reducer.reduce(parser.value(node));
+      const parsed = reducer.reduce(parser.value(node)) as Ast.Root<
+        Ast.ReducedExpression
+      >;
 
       node.value = parsed.toString();
 
       if (isVariableDeclaration(node.prop)) {
         const name = node.prop.slice(1);
-        // if (name in values) {
-        //   throw node.error(
-        //     `Cannot redefine an existing variable: ${node.prop}`,
-        //     {
-        //       word: node.prop,
-        //     },
-        //   );
-        // }
 
+        // console.log(parsed.body);
         members.setVariable(name, parsed.body.clone());
 
         node.remove();
@@ -43,8 +36,6 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
       }
     }
   });
-
-  // file.values = values;
 };
 
 // importsPlugin.postcssPlugin = 'modular-css-values-local';

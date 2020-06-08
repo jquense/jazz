@@ -17,6 +17,16 @@ const generate = async () => {
         'at_composes',
         'values',
         'declaration',
+
+        // for tests
+        'UnaryExpression',
+        'BinaryExpression',
+        'Expression',
+        'List',
+        'Numeric',
+        'MathFunction',
+        'Function',
+        'Url',
       ],
       optimize: 'speed',
       tspegjs: {

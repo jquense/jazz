@@ -1,25 +1,15 @@
 /* eslint-disable max-classes-per-file */
 
-import { hex, hsla, isValid, rgba } from 'khroma';
+import { isValid } from 'khroma';
 
 import interleave from '../utils/interleave';
 import conversions from '../utils/unit-conversions';
 
 const tag = `@@typeof/Node`;
 
-export type Identifier = {
-  type: 'identifier';
-  name: 'string';
-};
-
-// export type Variable = {
-//   type: 'variable';
-//   name: 'string';
-// };
-
 function cloneNode(obj: Node, parent?: Node) {
   // @ts-ignore
-  const cloned = new obj.constructor();
+  const cloned = obj.constructor ? new obj.constructor() : Object.create(null);
 
   for (let [key, value] of Object.entries(obj)) {
     const type = typeof value;
@@ -53,6 +43,11 @@ export abstract class Node<T extends string = any> {
     this.parent!.removeChild(this);
   }
 
+  remove() {
+    this.parent?.removeChild(this);
+    return this;
+  }
+
   clone(): this {
     const cloned = cloneNode(this);
 
@@ -63,8 +58,6 @@ export abstract class Node<T extends string = any> {
 // @ts-ignore
 Node.prototype[Symbol.for(tag)] = true;
 
-type iterator = (node: Node | Container, idx: number) => void | false;
-
 export const isNode = (node: any): node is Node => node instanceof Node;
 
 export type Value =
@@ -74,6 +67,7 @@ export type Value =
   | StringTemplate
   | Url
   | Calc
+  | MathFunction
   | Function
   | Variable
   | InterpolatedIdent
@@ -81,7 +75,6 @@ export type Value =
 
 export type ExpressionTerm =
   | Operator
-  | Separator
   | Variable
   | StringTemplate
   | StringLiteral
@@ -92,15 +85,14 @@ export type ExpressionTerm =
   | Ident
   | InterpolatedIdent
   | Url
-  | Block
   | Interpolation;
 
 export type ReducedExpression =
-  | Separator
   | StringLiteral
   | Numeric
   | Color
-  | Function
+  | Calc
+  | Operator
   | Ident
   | Url;
 
@@ -128,27 +120,40 @@ export type ChildNode =
   | Ident
   | InterpolatedIdent
   | Url
-  | Block
   | Interpolation
   | Expression;
 
 type WalkerIterable = Iterable<[ChildNode, { index: number; skip(): void }]>;
 
 export abstract class Container<T extends Node = Node> extends Node {
-  nodes: T[] = [];
+  protected _nodes: T[] = [];
 
   private currentIndices: Record<number, number> = Object.create(null);
 
   private id = 0;
 
-  constructor(nodes?: T | T[]) {
+  constructor(nodes?: T | readonly T[]) {
     super();
-    if (nodes) ([] as T[]).concat(nodes).forEach((n) => this.push(n));
+
+    if (nodes) this.push(...([] as T[]).concat(nodes));
   }
 
-  push(child: T) {
-    child.parent = this;
-    this.nodes.push(child);
+  get nodes(): readonly T[] {
+    return this._nodes;
+  }
+
+  set nodes(nodes: readonly T[]) {
+    this._nodes = this.normalize(nodes as T[]);
+  }
+
+  push(...children: T[]) {
+    for (const child of children) {
+      if (child == null) continue;
+      child.parent = this;
+
+      this._nodes.push(child);
+    }
+
     return this;
   }
 
@@ -197,7 +202,7 @@ export abstract class Container<T extends Node = Node> extends Node {
   append(...children: T[]) {
     for (const child of children) {
       const nodes = this.normalize(child);
-      for (const node of nodes) this.nodes.push(node);
+      for (const node of nodes) this._nodes.push(node);
     }
     return this;
   }
@@ -207,7 +212,7 @@ export abstract class Container<T extends Node = Node> extends Node {
 
     const nodes = this.normalize(itemsToAdd).reverse();
     for (const next of nodes) {
-      this.nodes.splice(current + 1, 0, next);
+      this._nodes.splice(current + 1, 0, next);
     }
 
     for (const [id, index] of Object.entries(this.currentIndices)) {
@@ -222,7 +227,7 @@ export abstract class Container<T extends Node = Node> extends Node {
   removeChild(child: T) {
     const idx = this.nodes.indexOf(child);
     child.parent = null;
-    this.nodes.splice(idx, 1);
+    this._nodes.splice(idx, 1);
 
     for (const [id, index] of Object.entries(this.currentIndices)) {
       if (index >= idx) {
@@ -236,6 +241,7 @@ export abstract class Container<T extends Node = Node> extends Node {
   private normalize(nodes: T | T[]) {
     if (!Array.isArray(nodes)) nodes = [nodes];
     for (const node of nodes) {
+      if (node == null) continue;
       if (node.parent) node.parent.removeChild(node);
       node.parent = this;
     }
@@ -258,71 +264,57 @@ export abstract class Container<T extends Node = Node> extends Node {
   }
 }
 
-export class Expression extends Container<ExpressionTerm | Expression> {
-  type = 'expression' as const;
-}
+export type ListItem = Value | Operator | List;
 
-export type BinaryExpressionTerm = ExpressionTerm | BinaryExpression;
+export class List extends Container<ListItem> {
+  type = 'list' as const;
 
-export class BinaryExpression extends Container<
-  BinaryExpressionTerm | Operator
-> {
-  type = 'binary-expression' as const;
-
-  readonly nodes!: [BinaryExpressionTerm, Operator, BinaryExpressionTerm];
-
-  constructor(
-    left: BinaryExpressionTerm,
-    operator: Operator,
-    right: BinaryExpressionTerm,
-  ) {
-    super([left, operator, right]);
+  constructor(nodes: readonly ListItem[], public separator?: Separator) {
+    super(nodes);
   }
 
-  get left(): BinaryExpressionTerm {
-    return this.nodes[0] as any;
-  }
+  static fromTokens(head: Value, tail: Array<[Separator, Value]>) {
+    let list = new List([head]);
+    for (const [separator, item] of tail) {
+      if (!list.separator) {
+        list.separator = separator;
+      } else if (list.separator !== separator) {
+        list = new List([list], separator);
+      }
 
-  set left(left: BinaryExpressionTerm) {
-    this.nodes[0].replaceWith(left);
-  }
-
-  get operator(): Operator {
-    return this.nodes[1] as any;
-  }
-
-  set operator(op: Operator) {
-    this.nodes[1].replaceWith(op);
-  }
-
-  get right(): BinaryExpressionTerm {
-    return this.nodes[2] as any;
-  }
-
-  set right(right: BinaryExpressionTerm) {
-    this.nodes[2].replaceWith(right);
-  }
-
-  static fromTokens(
-    head: BinaryExpressionTerm,
-    tail: Array<[Operator, BinaryExpressionTerm]>,
-  ) {
-    let result = head;
-    for (const [op, right] of tail) {
-      // if (right.type === 'calc')
-      //   right = right.nodes[0] as BinaryExpressionTerm;
-
-      result = new BinaryExpression(result, op, right);
+      list.push(item);
     }
+
+    return list;
+  }
+
+  toString() {
+    let result = '';
+
+    let sep: string = this.separator || ' ';
+    if (this.separator === '/') sep = ' / ';
+    if (this.separator === ',') sep += ' ';
+
+    for (const [idx, node] of this.nodes.entries()) {
+      result +=
+        idx !== this.nodes.length - 1
+          ? `${node.toString()}${sep}`
+          : node.toString();
+    }
+
     return result;
   }
 }
 
-export class Root extends Container {
+export class Expression extends Container<ExpressionTerm | Expression> {
+  type = 'expression' as const;
+}
+
+export class Root<T extends Node = ChildNode> extends Container<T> {
   type = 'root' as const;
 
   get body() {
-    return this.nodes[0] as ChildNode;
+    return this.nodes[0];
   }
 }
 
@@ -337,6 +329,7 @@ export class Numeric extends Node {
 
   static compatible(a: Numeric, b: Numeric) {
     if (a.unit && b.unit) {
+      if (a.unit === b.unit) return true;
       if (!(b.unit in conversions)) return false;
       if (!(a.unit in conversions[b.unit])) return false;
     }
@@ -348,40 +341,8 @@ export class Numeric extends Node {
     return `${this.value}${this.unit || ''}`;
   }
 
-  add(b: Numeric) {
-    const result = new Numeric(this.value, this.unit).convert(b.unit);
-    result.value += b.value;
-    return result;
-  }
-
-  subtract(b: Numeric) {
-    const result = new Numeric(this.value, this.unit).convert(b.unit);
-    result.value -= b.value;
-    return result;
-  }
-
-  multiply(b: Numeric) {
-    if (b.unit)
-      throw new Error(
-        `cannot multiply ${this} with ${b} because the units are incompatible`,
-      );
-
-    const result = new Numeric(this.value, this.unit);
-    return new Numeric(result.value * b.value, result.unit);
-  }
-
-  divide(b: Numeric) {
-    if (b.unit)
-      throw new Error(
-        `cannot divide ${this} and ${b} because the units are incompatible`,
-      );
-
-    const result = new Numeric(this.value, this.unit);
-    return new Numeric(result.value / b.value, result.unit);
-  }
-
   convert(toUnit: string | null, precision = 5) {
-    if (!toUnit) return this;
+    if (!toUnit || this.unit === toUnit) return this;
 
     const targetNormal = toUnit.toLowerCase();
     if (!this.unit) {
@@ -389,25 +350,22 @@ export class Numeric extends Node {
       return this;
     }
 
-    if (!(targetNormal in conversions)) {
-      throw new Error(`Cannot convert to ${toUnit}`);
-    }
-    if (!(this.unit in conversions[targetNormal])) {
+    if (
+      !(targetNormal in conversions) ||
+      !(this.unit in conversions[targetNormal])
+    ) {
       throw new Error(`Cannot convert from ${this.unit} to ${toUnit}`);
     }
 
-    const converted = conversions[targetNormal][this.unit] * this.value;
+    let converted = conversions[targetNormal][this.unit] * this.value;
 
     if (precision != null) {
       // eslint-disable-next-line no-bitwise
       precision = 10 ** (precision >>> 0);
-
-      this.value = Math.round(converted * precision) / precision;
-      return this;
+      converted = Math.round(converted * precision) / precision;
     }
 
-    this.value = converted;
-    return this;
+    return new Numeric(converted, toUnit);
   }
 }
 
@@ -450,14 +408,12 @@ export class StringLiteral extends Node {
   }
 }
 
-export class StringTemplate extends Container<
-  StringLiteral | Expression | ExpressionTerm
-> {
+export class StringTemplate extends Container<ListItem> {
   type = 'string-template' as const;
 
   constructor(
     public quasis: string[],
-    expressions: Array<StringLiteral | Expression | ExpressionTerm> = [],
+    expressions: ListItem[] = [],
     public quote: '"' | "'",
   ) {
     super(expressions);
@@ -497,18 +453,18 @@ export class StringTemplate extends Container<
   }
 }
 
+export type ArthimeticOperators = '+' | '-' | '*' | '/' | '%' | '**';
+
+export type RelationalOperators = '>' | '>=' | '<' | '<=' | '==' | '!=';
+
+export type LogicalOperators = 'not' | 'and' | 'or';
+
+export type UnaryOperators = '+' | '-' | 'not';
+
 export type Operators =
-  | ','
-  | '+'
-  | '-'
-  | '*'
-  | '/'
-  | '>'
-  | '>='
-  | '<'
-  | '<='
-  | '=='
-  | '!=';
+  | ArthimeticOperators
+  | RelationalOperators
+  | LogicalOperators;
 
 export class Operator extends Node {
   type = 'operator' as const;
@@ -522,17 +478,23 @@ export class Operator extends Node {
   }
 }
 
-export class Separator extends Node {
-  type = 'separator' as const;
+export type Comma = ',';
+export type Space = ' ';
+export type Slash = '/';
 
-  constructor(public value: string) {
-    super();
-  }
+export type Separator = Comma | Space | Slash;
 
-  toString() {
-    return `${this.value}`;
-  }
-}
+// export class Separator extends Node {
+//   type = 'separator' as const;
+
+//   constructor(public value: ',' | ' ' | '/') {
+//     super();
+//   }
+
+//   toString() {
+//     return `${this.value}`;
+//   }
+// }
 
 export class Variable extends Node {
   type = 'variable' as const;
@@ -570,55 +532,99 @@ export class Ident extends Node {
   }
 }
 
-export class Function extends Container<Value | BinaryExpression | Separator> {
+export class Function extends Container<ListItem> {
   type = 'function' as const;
 
+  separator: Separator | undefined;
+
   constructor(public name: Ident, params: List) {
-    // console.log('HI', params);
     super(params.nodes);
+    this.separator = params.separator;
+  }
+
+  separateArgumentsBy(sep: Separator) {
+    const current = this.separator;
+
+    this.separator = sep;
+
+    if (current === sep) return;
+    if (!current && this.nodes.length <= 1) return;
+
+    this._nodes = [];
+    this.push(new List(this.nodes, current));
+  }
+
+  get isVar() {
+    return (
+      this.name.toString() === 'var' &&
+      this.nodes[0].type === 'ident' &&
+      this.nodes[0].isCustomProperty
+    );
   }
 
   toString() {
-    return `${this.name}(${super.toString()})`;
+    return `${this.name}(${List.prototype.toString.call(this)})`;
   }
 
-  split(sep: ' ' | ',' | '/' = ','): Expression[] {
-    const result = [] as Expression[];
-    let current = new Expression([]);
+  // split(sep: ' ' | ',' | '/' = ','): Expression[] {
+  //   const result = [] as Expression[];
+  //   let current = new Expression([]);
 
-    for (const [node] of this.children()) {
-      if (node.type === 'separator' && node.value === sep) {
-        result.push(current);
-        current = new Expression([]);
-      } else {
-        current.push(node);
-      }
-    }
-    result.push(current);
-    return result;
+  //   for (const [node] of this.children()) {
+  //     if (node.type === 'separator' && node.value === sep) {
+  //       result.push(current);
+  //       current = new Expression([]);
+  //     } else {
+  //       current.push(node);
+  //     }
+  //   }
+  //   result.push(current);
+  //   return result;
+  // }
+}
+
+export class MathFunction extends Container<BinaryExpressionTerm> {
+  type = 'math-function' as const;
+
+  readonly separator: Separator | undefined = ',';
+
+  constructor(
+    public name: 'clamp' | 'min' | 'max',
+    params: BinaryExpressionTerm[],
+  ) {
+    // unwrap nested calcs
+    super(params?.map((p) => (p.type === 'calc' ? p.expression : p)));
+  }
+
+  toString(): string {
+    return `${this.name}(${List.prototype.toString.call(this)})`;
   }
 }
 
-export class Calc extends Container {
+export class Calc extends Container<BinaryExpressionTerm> {
   type = 'calc' as const;
 
-  get expression() {
-    return this.nodes[0] as MathExpressionTerm;
+  constructor(expression: BinaryExpressionTerm) {
+    super([expression]);
   }
 
-  set expression(expr: MathExpressionTerm) {
+  get expression() {
+    return this.nodes[0];
+  }
+
+  set expression(expr: BinaryExpressionTerm) {
     this.nodes[0].replaceWith(expr);
   }
 
-  toString() {
-    return `calc(${super.toString()})`;
+  toString(): string {
+    return `calc(${this.expression.toString()})`;
   }
 }
 
-export class Interpolation extends Container<Expression> {
+export class Interpolation extends Container<ListItem> {
   type = 'interpolation' as const;
 
-  constructor(public value: Expression) {
+  constructor(public value: ListItem) {
     super(value);
   }
 
@@ -631,28 +637,25 @@ export const PARENS = ['(', ')'] as const;
 export const SQUARE = ['[', ']'] as const;
 export const CURLY = ['{', '}'] as const;
 
-export class Block extends Container {
-  type = 'block' as const;
+// export class Block extends Container {
+//   type = 'block' as const;
 
-  constructor(
-    nodes: Expression | MathExpression,
-    public brackets: typeof CURLY | typeof SQUARE | typeof PARENS = PARENS,
-  ) {
-    super(nodes);
-  }
+//   constructor(
+//     nodes: Expression | BinaryExpression,
+//     public brackets: typeof CURLY | typeof SQUARE | typeof PARENS = PARENS,
+//   ) {
+//     super(nodes);
+//   }
 
-  toString() {
-    return `${this.brackets[0]}${super.toString()}${this.brackets[1]}`;
-  }
-}
+//   toString() {
+//     return `${this.brackets[0]}${super.toString()}${this.brackets[1]}`;
+//   }
+// }
 
-export class InterpolatedIdent extends Container {
+export class InterpolatedIdent extends Container<ListItem> {
   type = 'interpolated-ident' as const;
 
-  constructor(
-    public quasis: string[],
-    expressions: Array<Expression | ExpressionTerm> = [],
-  ) {
+  constructor(public quasis: string[], expressions: Array<ListItem> = []) {
     super(expressions);
   }
 
@@ -677,7 +680,7 @@ export class InterpolatedIdent extends Container {
       strings[0] === '' &&
       strings[1] === ''
     ) {
-      return new Interpolation(values[0]);
+      return values[0];
     }
 
     if (!values.length && strings.length === 1) {
@@ -694,55 +697,61 @@ export class InterpolatedIdent extends Container {
     return this.nodes;
   }
 
-  toString() {
+  toString(): string {
     return interleave(this.quasis, this.nodes)
       .map((e) => e.toString())
       .join('');
   }
 }
 
-export class List extends Container<Value | BinaryExpression> {
-  type = 'list' as const;
+export type BinaryExpressionTerm = Value | BinaryExpression | UnaryExpression;
+
+export class UnaryExpression extends Container<BinaryExpressionTerm> {
+  type = 'unary-expression' as const;
 
   constructor(
-    public nodes: Array<Value | BinaryExpression>,
-    public separator?: Separator,
+    public operator: UnaryOperators,
+    argument: BinaryExpressionTerm,
   ) {
-    super(nodes);
+    super([argument]);
   }
 
-  // get elements() {
-  //   return this.nodes.filter((n) => n.type !== 'separator');
-  // }
+  get argument() {
+    return this.nodes[0];
+  }
+
+  set argument(argument: BinaryExpressionTerm) {
+    this.nodes[0].replaceWith(argument);
+  }
+
+  toString(): string {
+    const { argument, operator: op } = this;
+    let str = argument.toString();
+
+    if (argument.type === 'binary-expression') str = `(${str})`;
+    if (argument.type === 'numeric' && argument.value < 0) return str;
+    return `${op === 'not' ? 'not ' : op}${str}`;
+  }
 }
 
-export type MathExpressionTerm =
-  | MathExpression
-  | Numeric
-  | Variable
-  | Calc
-  | Variable
-  | Block
-  | Function;
+export class BinaryExpression extends Container {
+  type = 'binary-expression' as const;
 
-export class MathExpression extends Container {
-  type = 'math-expression' as const;
-
-  readonly nodes!: [MathExpressionTerm, Operator, MathExpressionTerm];
+  readonly nodes!: [BinaryExpressionTerm, Operator, BinaryExpressionTerm];
 
   constructor(
-    left: MathExpressionTerm,
+    left: BinaryExpressionTerm,
     operator: Operator,
-    right: MathExpressionTerm,
+    right: BinaryExpressionTerm,
   ) {
     super([left, operator, right]);
   }
 
-  get left(): MathExpressionTerm {
+  get left(): BinaryExpressionTerm {
     return this.nodes[0] as any;
   }
 
-  set left(left: MathExpressionTerm) {
+  set left(left: BinaryExpressionTerm) {
     this.nodes[0].replaceWith(left);
   }
 
@@ -754,23 +763,38 @@ export class MathExpression extends Container {
     this.nodes[1].replaceWith(op);
   }
 
-  get right(): MathExpressionTerm {
+  get right(): BinaryExpressionTerm {
     return this.nodes[2] as any;
   }
 
-  set right(right: MathExpressionTerm) {
+  set right(right: BinaryExpressionTerm) {
     this.nodes[2].replaceWith(right);
   }
 
+  toString(): string {
+    const leftStr = this.left.toString();
+    const left =
+      this.left.type === 'binary-expression' ? `(${leftStr})` : leftStr;
+
+    const rightStr = this.right.toString();
+    const right =
+      this.right.type === 'binary-expression' ? `(${rightStr})` : rightStr;
+    return `${left} ${this.operator.toString()} ${right}`;
+  }
+
   static fromTokens(
-    head: MathExpressionTerm,
-    tail: Array<[Operator, MathExpressionTerm]>,
+    head: BinaryExpressionTerm,
+    tail: Array<[Operator, BinaryExpressionTerm]>,
   ) {
     let result = head;
-    for (let [op, right] of tail) {
-      if (right.type === 'calc') right = right.nodes[0] as MathExpression;
 
-      result = new MathExpression(result, op, right);
+    for (let [op, right] of tail) {
+      if (right.type === 'calc') right = right.nodes[0] as BinaryExpression;
+
+      result =
+        op.value === '**'
+          ? new BinaryExpression(right, op, result)
+          : new BinaryExpression(result, op, right);
     }
     return result;
   }

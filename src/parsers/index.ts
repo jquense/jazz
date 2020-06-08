@@ -1,4 +1,7 @@
 /* eslint-disable no-return-assign */
+
+// @ts-ignore
+// eslint-disable-next-line import/no-extraneous-dependencies
 import Tracer from 'pegjs-backtrace';
 import postcss from 'postcss';
 
@@ -32,8 +35,6 @@ class Parser {
 
   constructor({ trace }: { trace?: boolean } = {}) {
     this.trace = !!trace;
-
-    //= trace ?  : { trace() {} };
   }
 
   static get(root: postcss.Root): Parser {
@@ -74,9 +75,15 @@ class Parser {
     try {
       return parse(input, { tracer, ...opts });
     } catch (err) {
-      console.log(tracer.getBacktraceString());
+      if (tracer.getBacktraceString) console.log(tracer.getBacktraceString());
       throw err;
     }
+  }
+
+  expression(node: postcss.AtRule) {
+    return getOrAdd(this.exportsCache, node, () =>
+      this.parse(node.params, { startRule: 'Expression' }),
+    );
   }
 }
 

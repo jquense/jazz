@@ -1,4 +1,5 @@
 import * as Ast from '../../parsers/Ast';
+import * as math from '../../parsers/math';
 
 export const PI = new Ast.Numeric(Math.PI);
 
@@ -7,17 +8,17 @@ export const round = (num: Ast.Numeric) => {
 };
 
 export const add = (a: Ast.Numeric, b: Ast.Numeric) => {
-  return a.add(b);
+  return math.add(a, b, true);
 };
 
 export const subtract = (a: Ast.Numeric, b: Ast.Numeric) => {
-  return a.subtract(b);
+  return math.subtract(a, b, true);
 };
 
 export const multiply = (a: Ast.Numeric, b: Ast.Numeric) => {
-  return a.multiply(b);
+  return math.multiply(a, b, true);
 };
 
 export const divide = (a: Ast.Numeric, b: Ast.Numeric) => {
-  return a.divide(b);
+  return math.divide(a, b, true);
 };

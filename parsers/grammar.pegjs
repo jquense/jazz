@@ -113,36 +113,50 @@ function "function"
 // ---------------
 
 
-CommaSep
-   = "," _  { return new Ast.Separator(",") }
+Comma
+   = "," _  { return "," }
 
-SlashSep
-  = "/" _  { return new Ast.Separator("/") }
+Slash
+  = "/" _  { return "/" }
 
-SpaceSep
-  = " " _  { return new Ast.Separator(" ") }
-
-Separator
-  = "," _  { return new Ast.Separator(",") }
-  / "/" _  { return new Ast.Separator(",") }
+Space
+  = __  { return " " }
 
 
-MinusOp "minus"
-  = "-"       { return new Ast.Operator("-"); }
-  / __ "-" __ { return new Ast.Operator("-"); }
+UnaryOperator
+  = 'not'i { return new Ast.Operator('not') }
 
 
-Operator
-  = __ "/" __  { return new Ast.Operator("/"); }
-  / __ "+" __  { return new Ast.Operator("+"); }
-  / __ "-" __ { return new Ast.Operator("-"); }
-  / __ "*" __  { return new Ast.Operator("*"); }
-  / __ ">" __  { return new Ast.Operator(">"); }
-  / __ ">=" __ { return new Ast.Operator(">="); }
-  / __ "<" __  { return new Ast.Operator("<"); }
+RelationalOperator
+  = __ ">=" __ { return new Ast.Operator(">="); }
   / __ "<=" __ { return new Ast.Operator("<="); }
-  / __ "==" __ { return new Ast.Operator("=="); }
+  / __ ">" __  { return new Ast.Operator(">"); }
+  / __ "<" __  { return new Ast.Operator("<"); }
   / __ "!=" __ { return new Ast.Operator("!="); }
+  / __ "==" __ { return new Ast.Operator("=="); }
+
+
+AdditiveOperator
+  = __ "+" __  { return new Ast.Operator("+"); }
+  /  __ "-" __ { return new Ast.Operator("-"); }
+
+MultiplicativeOperator
+  = __ "*" __  { return new Ast.Operator("*"); }
+  / __ "/" __  { return new Ast.Operator("/"); }
+  / __ "%" __  { return new Ast.Operator("%"); }
+
+ExponetialOperator
+  =  __ "**" __  { return new Ast.Operator("**"); }
+
+NotOperator
+  =  __ "not"i __  { return new Ast.Operator("not"); }
+
+
+AndOperator
+  =  __ "and"i __  { return new Ast.Operator("and"); }
+
+OrOperator
+  =  __ "or"i __  { return new Ast.Operator("or"); }
 
 
 OperatorNoDivision
@@ -205,23 +219,19 @@ Url
   = comment* uri  { return new Ast.Url(value) }
 
 
-// Block
-//   = comment* "{" _ expr:Expression _ "}"  { return new Ast.Block(expr, ['{','}']) }
-//   / comment* "[" _ expr:Expression _ "]" { return new Ast.Block(expr, ['[',']']) }
-//   / comment* "(" _ expr:Expression _ ")" { return new Ast.Block(expr, ['(',')']) }
-
-
 Function  "function"
-  = comment* name:(NamespacedIdent/ Ident) "(" _ params:List _ ")" {
+  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ params:List _ ")" {
     // we need to re-wrap the expression if it was reduced to it's lone item
-    return new Ast.Function(name, params.type !== 'list'
+    return new Ast.Function(name[0], params.type !== 'list'
       ? new Ast.List([params])
       : params
     );
   }
 
 Interpolation "interpolation"
-  = '#{' _ expr:List _'}' { return new Ast.Interpolation(expr) }
+  = '#{' _ list:List _'}' {
+    return new Ast.Interpolation(list.nodes.length <= 1 ? list.nodes[0].remove() : list)
+  }
 
 
 InterpolatedIdent "interpolated identifier"
@@ -230,36 +240,26 @@ InterpolatedIdent "interpolated identifier"
   }
 
 
-Calc "calc()"
-  = comment* "calc("i _ value:MathExpression _ ")"  { return new Ast.Calc(value) }
+math_function_names
+  = "calc"i / "min"i / "max"i / "clamp"i
 
+math_params "list of math expressions"
+  = head:(Expression) _ tail:(Comma expr:Expression _ { return expr })* { return [head, ...tail] }
 
-// ExpressionTerm
-//   = Value
+MathFunction "calc, min, max, or clamp function"
+  = comment* name:math_function_names "(" _ params:(math_params) _ ")"  {
+    return name.toLowerCase() === 'calc'
+      ? new Ast.Calc(params[0])
+      : new Ast.MathFunction(name.toLowerCase(), params)
+  }
 
-
-
-// Expression
-//   = head:ExpressionTerm tail:(Separator? ExpressionTerm)* {
-//     let result = [head]
-//     for (let [operator, term] of tail) {
-//       if (operator) result.push(operator)
-
-//       // flatten bare interpolations
-//       term.type === 'interpolation'
-//         ? result.push(...term.value.nodes)
-//         : result.push(term)
-//     }
-
-//     return result.length === 1 ? result[0] : new Ast.Expression(result)
-//   }
 
 Value
   = Color
   / Numeric
   / StringTemplate
   / Url
-  / Calc
+  / MathFunction
   / Function
   / NamespacedVariable
   / Variable
@@ -267,74 +267,85 @@ Value
   / InterpolatedIdent
 
 
-BinaryExpressionTerm
+PrimaryExpression
   = Value
-  / comment* "(" _ expr:BinaryExpression _ ")" _ { return expr }
+  / comment* "(" _ expr:Expression _ ")" { return expr }
 
 
-BinaryExpression
-   = head:BinaryExpressionTerm tail:(OperatorNoDivision BinaryExpressionTerm _)+ _ {
+UnaryExpression
+  = op:('+' / '-')? _ argument:PrimaryExpression _ {
+    return op ? new Ast.UnaryExpression(op, argument) : argument
+  }
+
+
+ExponentialExpression
+   = head:UnaryExpression tail:(ExponetialOperator UnaryExpression)* _ {
+    // Exponentiation is right-associative, maybe move this to AST
+    tail = [[new Ast.Operator('**'), head], ...tail].reverse();
+    [, head] = tail.shift()
     return Ast.BinaryExpression.fromTokens(head, tail)
   }
 
 
-MathExpressionTerm
-  = Numeric
-  / Calc
-  / Function
-  / NamespacedVariable
-  / Variable
-  / comment* "(" _ expr:MathExpression _ ")" {
-    return expr
+MultiplicativeExpression
+   = head:ExponentialExpression tail:(MultiplicativeOperator ExponentialExpression)* _ {
+    return Ast.BinaryExpression.fromTokens(head, tail)
   }
 
 
-MathExpression
-   = head:MathExpressionTerm _ tail:(Operator MathExpressionTerm _)* _ {
-    return Ast.MathExpression.fromTokens(head, tail)
+AdditiveExpression
+  = head:MultiplicativeExpression  tail:(AdditiveOperator MultiplicativeExpression)* _ {
+    return Ast.BinaryExpression.fromTokens(head, tail)
   }
 
-ListExpression
+
+RelationalExpression
+  = head:AdditiveExpression  tail:(RelationalOperator AdditiveExpression)* _ {
+    return Ast.BinaryExpression.fromTokens(head, tail)
+  }
+
+
+NotExpression
+  = op:NotOperator? argument:RelationalExpression _ {
+    return op ? new Ast.UnaryExpression(op.value, argument) : argument
+  }
+
+
+AndExpression
+  = head:NotExpression  tail:(AndOperator NotExpression)* _ {
+     return Ast.BinaryExpression.fromTokens(head, tail)
+  }
+
+
+OrExpression
+  = head:AndExpression  tail:(OrOperator AndExpression)* {
+     return Ast.BinaryExpression.fromTokens(head, tail)
+  }
+
+
+BinaryExpression
+   = OrExpression
+
+
+Expression
+  = OrExpression
+
+
+ListItem
   = Value
+  / OperatorNoDivision
+  / ParenthesizedList
+
 
 List
-  = CommaSeparatedList
-  / SpaceSeparatedList
-  / ListExpression
-  //
-
-  // = head:ListExpression tail:(Separator? ListExpression)* {
-  //   return tail.length
-  //     ? new Ast.List([head].concat(
-  //         ...tail.map(([sep, expr]) =>[sep ?? new Ast.Separator(' '), expr])
-  //       ))
-  //     : head
-  // }
-
-
-SpaceSeparatedList
-  = head:ListExpression tail:(__ expr:ListExpression { return expr })+ {
-    return new Ast.List([head].concat(tail), new Ast.Separator(' '))
+  = head:(ListItem) _ tail:(sep:(Comma / Slash / Space) expr:ListItem _ { return [sep, expr]})* {
+    return Ast.List.fromTokens(head, tail)
   }
 
-CommaSeparatedList
-  = head:ListExpression _ tail:(CommaSep expr:ListExpression _ { return expr })+ {
-     return new Ast.List([head].concat(tail), new Ast.Separator(','))
-  }
 
-// SlashSeparatedList
-//   = head:ListExpression tail:("/" _ ListExpression)* {
-//     return [head, ...tail]
-//   }
+ParenthesizedList
+  = "(" _ list:List _ ")" { return list }
 
-// expression_list
-//   = head:expression tail:(',' _ expr:expression? { return expr })* {
-//     if (tail[tail.length - 1] === null) {
-//       throw error('Unexpected trailing comma ","')
-//     }
-
-//     return tail.length ? new Ast.List([head, ...tail], ',') : head
-//   }
 
 
 variable_or_class
@@ -452,7 +463,9 @@ ExportSpecifiers
 // Values
 
 values
-  = _ expr:(List ) _ { return expr }
+  = _ list:(List / ParenthesizedList) _ {
+    return list.nodes.length <= 1 ? list.nodes[0].remove() : list
+  }
 
 declaration
   = InterpolatedIdent
