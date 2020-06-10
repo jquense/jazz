@@ -17,6 +17,8 @@ export default class Scope {
 
   readonly funcs: Record<string, FunctionMember> = Object.create(null);
 
+  parent: Scope | null = null;
+
   constructor(opts?: {
     variables?: Record<string, VariableMember>;
     funcs?: Record<string, FunctionMember>;
@@ -27,6 +29,18 @@ export default class Scope {
     }
   }
 
+  createChildScope() {
+    const inner = new Scope();
+    inner.parent = this;
+    return inner;
+  }
+
+  close() {
+    const { parent } = this;
+    this.parent = null;
+    return parent;
+  }
+
   from(scope: Scope, namespace?: string) {
     for (const [key, value] of Object.entries(scope.variables)) {
       this.set(new Ast.Variable(key.slice(1), namespace), value);
@@ -34,6 +48,7 @@ export default class Scope {
     for (const [key, value] of Object.entries(scope.funcs)) {
       this.set(new Ast.Ident(key, namespace), value);
     }
+    return this;
   }
 
   get(ident: Ast.Ident): FunctionMember;
@@ -43,7 +58,7 @@ export default class Scope {
   get(ident: Ast.Ident | Ast.Variable) {
     const cache = ident.type === 'variable' ? this.variables : this.funcs;
 
-    return cache[ident.toString()];
+    return cache[ident.toString()] ?? this.parent?.get(ident as any);
   }
 
   set(

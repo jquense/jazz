@@ -1,3 +1,5 @@
+import { fstat } from 'fs';
+
 import postcss from 'postcss';
 
 import * as Ast from '../../parsers/Ast';
@@ -135,8 +137,8 @@ describe('value-processing', () => {
         ['calc(-$a + 100vh)', 'calc(-10px + 100vh)'],
         ['calc(var(--foo) + 100vh)', 'calc(var(--foo) + 100vh)'],
         ['calc((10px + 10px) + 100vh)', 'calc(20px + 100vh)'],
-        ['calc($c + 100vh)', 'calc((1em + 10px) + 100vh)'],
-        ['calc(-$c + 100vh)', 'calc((-1 * (1em + 10px)) + 100vh)'],
+        ['calc($c + 100vh)', 'calc(1em + 10px + 100vh)'],
+        ['calc(-$c + 100vh)', 'calc(-1 * (1em + 10px) + 100vh)'],
 
         [
           'calc(max($a, $b + 30px, 4vw) * 1)',
@@ -209,7 +211,7 @@ describe('value-processing', () => {
           }
         `),
       ).rejects.toThrowError(
-        'Cannot evaluate $width + 100vh (evaluated as: red + 100vh) because some terms are not numerical',
+        'Cannot evaluate $width + 100vh (evaluated as: red + 100vh). Some terms are not numerical',
       );
     });
 
@@ -254,6 +256,217 @@ describe('value-processing', () => {
     });
   });
 
+  describe('@if/@else', () => {
+    it('should evaluate @if', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 5px >= 2px {
+            color: blue
+          } @else {
+            color: red
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo { color: blue }`);
+    });
+
+    it.each([
+      ['5px + 10px > 4'],
+      ['(null or 5px )== 5px'],
+      ['(5px or false) == 5px'],
+      ['false or 5px == 5px'],
+      ['(5px and 6em) == 6em'],
+      ['10 % 3 == 1'],
+      ['5px + calc(5px + 2px) == 12px'],
+      // ['calc(5em + 2px) == 12px'], // should throw
+    ])('evaluates true %s', async (expression) => {
+      const { css } = await run(`.a { @if ${expression} { a: true } }`);
+
+      expect(css).toMatchCss(`.a { a: true }`);
+    });
+
+    it('should evaluate strings @if', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 'foo' == foo {
+            a: a
+          }
+          @if foo == foo {
+            b: b
+          }
+          @if 'foo' == "foo" {
+            c: c
+          }
+          @if 'foo' != 'bar' {
+            d: d
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo {
+        a: a;
+        b: b;
+        c: c;
+        d: d
+      }`);
+    });
+
+    it('should evaluate strings @else if', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 'bar' == foo {
+            a: a
+          }
+          @else if baz == 'foo' {
+            b: b
+          } @else if foo == foo {
+            c: c
+          } @else {
+            f: f
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo {
+        c: c
+      }`);
+    });
+
+    // it('should evaluate colors', async () => {
+    //   const { css } = await run(`
+    //     .foo {
+    //       @if hsl(34, 35%, 92.1%) == #f2ece4 {
+    //         a: a
+    //       }
+    //     }
+    //   `);
+
+    //   expect(css).toMatchCss(`.foo {
+    //     a: a;
+    //   }`);
+    // });
+
+    it('should use else block @if', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 10px <= 2px {
+            color: blue
+          } @else {
+            color: red
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo { color: red }`);
+    });
+
+    it('should convert between units', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 1in == 96px {
+            color: blue
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo { color: blue }`);
+    });
+
+    it('should not shadow', async () => {
+      const { css } = await run(`
+        .foo {
+          @if 1in == 96px {
+            color: blue
+          }
+        }
+      `);
+
+      expect(css).toMatchCss(`.foo { color: blue }`);
+    });
+  });
+
+  describe('@for loop', () => {
+    it('should evaluate exclusive loop', async () => {
+      const { css } = await run(`
+        @for $i from 0 to 10 {
+          a: $i
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 0;
+        a: 1;
+        a: 2;
+        a: 3;
+        a: 4;
+        a: 5;
+        a: 6;
+        a: 7;
+        a: 8;
+        a: 9
+      `);
+    });
+
+    it('should evaluate inclusive loop', async () => {
+      const { css } = await run(`
+        @for $i from 0 through 5 {
+          a: $i
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 0;
+        a: 1;
+        a: 2;
+        a: 3;
+        a: 4;
+        a: 5
+      `);
+    });
+
+    it('should start from', async () => {
+      const { css } = await run(`
+        @for $i from 3 through 5 {
+          a: $i
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 3;
+        a: 4;
+        a: 5
+      `);
+    });
+
+    it('should maintain scope', async () => {
+      const { css } = await run(`
+        $a: 1;
+
+        @for $i from 3 through 5 {
+          a: calc($i + $a);
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 4;
+        a: 5;
+        a: 6
+      `);
+    });
+
+    it('should not leak scope', async () => {
+      await expect(
+        run(`
+          @for $i from 3 through 5 {
+            a: $i
+          }
+
+          .foo { b: $i; }
+        `),
+      ).rejects.toThrowError('Variable not defined $i');
+    });
+  });
   // it('should complain about redefining', async () => {
   //   const values = {};
 

@@ -1,12 +1,21 @@
+/* eslint-disable no-loop-func */
+import postcss, { AtRule, ChildNode, Declaration } from 'postcss';
+
+import Parser from '../parsers';
 import * as Ast from '../parsers/Ast';
 import * as math from '../parsers/math';
 import Scope from './Scope';
+import { isVariableDeclaration } from './Variables';
 
 // export function canCalcBeReduced(calc: Ast.Calc) {
 //   if (calc)
 // }
 
-type Reduceable = Ast.ListItem | Ast.Root | Ast.Expression;
+type Reduceable =
+  | Ast.ListItem
+  | Ast.DeclarationValue
+  | Ast.Expression
+  | postcss.Node;
 
 type MathExpression = Ast.BinaryExpression & {
   left: math.Term;
@@ -15,17 +24,70 @@ type MathExpression = Ast.BinaryExpression & {
 
 type Resolved<T> = T extends Ast.Variable ? never : T;
 
+const insertBeforeParent = (node: postcss.ChildNode) =>
+  (node.parent as postcss.Container).insertBefore(node, node.nodes);
+
+function fixElseIfAtRule(rule?: ChildNode) {
+  if (rule?.type !== 'atrule') return rule;
+  if (rule.name !== 'else') return rule;
+
+  const [ifPart, rest] = rule.params.split(/\s*if\s+/g);
+  if (!ifPart.length && rest) {
+    rule.name += ' if';
+    rule.params = rest;
+  }
+  return rule;
+}
+
 export class Reducer {
   private inCalc = 0;
 
-  constructor(private scope: Scope) {}
+  constructor(private currentScope: Scope, public parser: Parser) {}
+
+  static reduce(
+    node: Reduceable,
+    scope: Scope,
+    parser: Parser,
+  ): Resolved<Reduceable> {
+    return new Reducer(scope, parser).reduce(node);
+  }
+
+  scope(fn: (scope: Scope) => void) {
+    this.currentScope = this.currentScope.createChildScope();
+
+    try {
+      fn(this.currentScope);
+    } finally {
+      this.currentScope = this.currentScope.close()!;
+    }
+  }
 
   reduce(node: Reduceable): Resolved<Reduceable> {
-    const { scope } = this;
-
     switch (node.type) {
+      case 'root':
+        // console.log('ROOOT', node);
+        this.reducePostCssNodes(node);
+        return node;
+      case 'rule':
+        // console.log('RULE', node.nodes);
+
+        this.scope(() => {
+          this.reducePostCssNodes(node);
+        });
+        break;
+
+      case 'decl':
+        this.reduceDeclaration(node);
+
+        break;
+      case 'atrule': {
+        if (node.name === 'if') this.reduceIfRule(node);
+        else if (node.name === 'for') this.reduceForRule(node);
+        break;
+      }
+
       case 'variable': {
-        const variable = scope.get(node);
+        const variable = this.currentScope.get(node);
 
         if (!variable) {
           throw new Error(`Variable not defined ${node.toString()}`);
@@ -39,8 +101,8 @@ export class Reducer {
       case 'operator':
         return node;
 
-      case 'root':
       case 'list':
+      case 'declaration-value':
         this.reduceChildren(node);
         break;
       case 'unary-expression':
@@ -69,14 +131,107 @@ export class Reducer {
 
         return new Ast.Ident(node.toString());
       }
+
       default:
     }
 
     return node as any;
   }
 
+  reduceDeclaration(node: Declaration) {
+    const parsed = this.reduce(this.parser.value(node));
+    // TODO: handle null
+    node.value = parsed.toString();
+
+    if (isVariableDeclaration(node.prop)) {
+      const name = node.prop.slice(1);
+
+      // console.log(parsed.body);
+      this.currentScope.setVariable(name, parsed.body.clone());
+
+      node.remove();
+      return null;
+    }
+
+    node.prop = this.reduce(this.parser.prop(node)).toString();
+
+    return node;
+  }
+
+  reduceForRule(node: AtRule) {
+    const parsed = this.parser.forCondition(node);
+    const fromExpr = this.reduce(parsed.from) as Ast.ReducedExpression;
+    const toExpr = this.reduce(parsed.to) as Ast.ReducedExpression;
+
+    if (fromExpr.type !== 'numeric') {
+      throw node.error(`${fromExpr} is not numeric`);
+    }
+    if (toExpr.type !== 'numeric') {
+      throw node.error(`${toExpr} is not numeric`);
+    }
+    if (!Ast.Numeric.compatible(fromExpr, toExpr)) {
+      throw node.error(
+        `${fromExpr.unit} is not compatible with ${toExpr.unit}`,
+      );
+    }
+
+    const end = parsed.exclusive ? toExpr.value : toExpr.value + 1;
+    const start = fromExpr.value;
+
+    const nodes = [] as ChildNode[];
+    for (let i = start; i < end; i++) {
+      this.scope((scope) => {
+        scope.set(parsed.variable.clone(), new Ast.Numeric(i));
+
+        const iter = node.clone({ parent: node.parent });
+
+        nodes.push(...iter.nodes!.map((t) => this.reduce(t) as ChildNode));
+      });
+    }
+
+    node.replaceWith(...nodes);
+  }
+
+  reduceIfRule(node: AtRule) {
+    let current: ChildNode | undefined = node;
+    let result = false;
+
+    while (current && current.type === 'atrule') {
+      const next = fixElseIfAtRule(current.next());
+
+      if (!result && current.name.endsWith('if')) {
+        const condition = this.reduce(
+          this.parser.expression(current),
+        ) as Ast.Value;
+
+        result = Ast.isTruthy(condition);
+
+        if (result) {
+          this.scope(() => {
+            this.reducePostCssNodes(current);
+
+            current!.replaceWith(...current!.nodes!);
+          });
+        }
+      } else if (!result && current.name === 'else') {
+        this.scope(() => {
+          current!.replaceWith(...current!.nodes!.map((t) => this.reduce(t)));
+        });
+      }
+
+      current.remove();
+
+      // if we find another @if need to break and let the reducer run it
+      if (next?.type === 'atrule' && next.name === 'if') {
+        break;
+      }
+
+      current = next;
+    }
+  }
+
   reduceFunction(node: Ast.Function) {
-    const fn = this.scope.get(node.name);
+    const fn = this.currentScope.get(node.name);
 
     // assume a css function grumble
     if (!fn) {
@@ -90,8 +245,21 @@ export class Reducer {
     return fn.fn(...node.nodes);
   }
 
+  reducePostCssNodes(node: postcss.Container) {
+    node.each((child) => {
+      this.reduce(child as any);
+    });
+  }
+
   reduceChildren(node: Ast.Container) {
-    node.nodes = node.nodes.map((t) => this.reduce(t as any));
+    const result = [] as any[];
+
+    for (const child of node.nodes!) {
+      const next = this.reduce(child as any);
+      if (next) result.push(next);
+    }
+
+    node.nodes = result;
   }
 
   reduceUnaryExpression(node: Ast.UnaryExpression) {
@@ -146,6 +314,7 @@ export class Reducer {
         }. ${reason}`,
       );
     };
+
     if (math.isArithmeticOperator(op)) {
       if (!math.isMathTerm(left) || !math.isMathTerm(right)) {
         throw evalError('Some terms are not numerical.');

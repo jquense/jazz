@@ -4,11 +4,13 @@ import Parser from '..';
 import {
   Function as AstFunction,
   BinaryExpression,
+  BooleanLiteral,
   Calc,
   DOUBLE,
   Ident,
   InterpolatedIdent,
   List,
+  NullLiteral,
   Numeric,
   Operator,
   Operators,
@@ -51,6 +53,16 @@ describe('parser: values', () => {
     ['1cm', new Numeric(1, 'cm')],
   ])('parses numbers %s', (input, expected) => {
     expect(parse(input)).toEqual(expected);
+  });
+
+  describe('literals', () => {
+    test.each([
+      ['true', new BooleanLiteral(true)],
+      ['false', new BooleanLiteral(false)],
+      ['null', new NullLiteral()],
+    ])('%s', (input, expected) => {
+      expect(parse(input)).toEqual(expected);
+    });
   });
 
   it.each([
@@ -243,6 +255,8 @@ describe('parser: values', () => {
       ['foo-bar', new Ident('foo-bar')],
       ['foo.bar', new Ident('bar', 'foo')],
       ['-bar', new Ident('-bar')],
+      ['-true', new Ident('-true')],
+      ['true-bar', new Ident('true-bar')],
 
       ['-#{bar}', new InterpolatedIdent(['-', ''], [new Ident('bar')])],
       ['foo, bar', new List([new Ident('foo'), new Ident('bar')], comma)],

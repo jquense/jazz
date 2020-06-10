@@ -78,11 +78,16 @@ nmchar
 name
   = chars:nmchar+ { return chars.join(""); }
 
-integer
-  = [0-9]+
+integer  = [0-9]+
 
-decimal
-  = [0-9]* "." [0-9]+
+decimal = [0-9]* "." [0-9]+
+
+
+null    = "null"    !nmchar
+false   = "false"   !nmchar
+true    = "true"    !nmchar
+in      = "in"      !nmchar
+
 
 num
   = [+-]? (decimal / integer) ("e"i [+-]? [0-9]+)? {
@@ -132,7 +137,10 @@ RelationalOperator
   / __ "<=" __ { return new Ast.Operator("<="); }
   / __ ">" __  { return new Ast.Operator(">"); }
   / __ "<" __  { return new Ast.Operator("<"); }
-  / __ "!=" __ { return new Ast.Operator("!="); }
+
+
+EqualityOperator
+  = __ "!=" __ { return new Ast.Operator("!="); }
   / __ "==" __ { return new Ast.Operator("=="); }
 
 
@@ -200,6 +208,15 @@ Color
   }
 
 
+NullLiteral
+  = null { return new Ast.NullLiteral() }
+
+
+BooleanLiteral
+  = true { return new Ast.BooleanLiteral(true) }
+  / false  { return new Ast.BooleanLiteral(false) }
+
+
 Numeric
   = comment* value:num unit:('%' / ident { return text() })? {
     return new Ast.Numeric(value, unit)
@@ -257,6 +274,8 @@ MathFunction "calc, min, max, or clamp function"
 Value
   = Color
   / Numeric
+  / NullLiteral
+  / BooleanLiteral
   / StringTemplate
   / Url
   / MathFunction
@@ -305,8 +324,14 @@ RelationalExpression
   }
 
 
+EqualityExpression
+  = head:RelationalExpression  tail:(EqualityOperator RelationalExpression)* _ {
+    return Ast.BinaryExpression.fromTokens(head, tail)
+  }
+
+
 NotExpression
-  = op:NotOperator? argument:RelationalExpression _ {
+  = op:NotOperator? argument:EqualityExpression _ {
     return op ? new Ast.UnaryExpression(op.value, argument) : argument
   }
 
@@ -470,3 +495,8 @@ values
 declaration
   = InterpolatedIdent
 
+
+for_condition
+  = _ variable:Variable __ "from" __ from:Expression _ exclusive:("to" / "through") _ to:Expression _ {
+    return  new Ast.ForCondition(variable, from, to, exclusive === 'to')
+  }

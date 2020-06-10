@@ -1,9 +1,10 @@
 /* eslint-disable max-classes-per-file */
 
-import { isValid } from 'khroma';
+import { channel, isValid } from 'khroma';
 
 import interleave from '../utils/interleave';
 import conversions from '../utils/unit-conversions';
+import { PRECEDENCE } from './math';
 
 const tag = `@@typeof/Node`;
 
@@ -53,6 +54,10 @@ export abstract class Node<T extends string = any> {
 
     return cloned;
   }
+
+  equalTo(node: Node): boolean {
+    return this === node;
+  }
 }
 
 // @ts-ignore
@@ -60,9 +65,17 @@ Node.prototype[Symbol.for(tag)] = true;
 
 export const isNode = (node: any): node is Node => node instanceof Node;
 
+export const isFalsey = (node: Value): node is BooleanLiteral | NullLiteral =>
+  node.type === 'null' || (node.type === 'boolean' && node.value === false);
+
+export const isTruthy = (node: Value): node is Exclude<Value, NullLiteral> =>
+  !isFalsey(node);
+
 export type Value =
   | Color
   | Numeric
+  | NullLiteral
+  | BooleanLiteral
   | StringLiteral
   | StringTemplate
   | Url
@@ -73,19 +86,9 @@ export type Value =
   | InterpolatedIdent
   | Ident;
 
-export type ExpressionTerm =
-  | Operator
-  | Variable
-  | StringTemplate
-  | StringLiteral
-  | Numeric
-  | Color
-  | Calc
-  | Function
-  | Ident
-  | InterpolatedIdent
-  | Url
-  | Interpolation;
+export type Expression = Value | BinaryExpression | UnaryExpression;
+
+export type ListItem = Value | Operator | List;
 
 export type ReducedExpression =
   | StringLiteral
@@ -109,21 +112,7 @@ export type ReducedExpression =
 //   Variable =
 // }
 
-export type ChildNode =
-  | Operator
-  | Variable
-  | Color
-  | StringTemplate
-  | StringLiteral
-  | Numeric
-  | Function
-  | Ident
-  | InterpolatedIdent
-  | Url
-  | Interpolation
-  | Expression;
-
-type WalkerIterable = Iterable<[ChildNode, { index: number; skip(): void }]>;
+type WalkerIterable = Iterable<[ListItem, { index: number; skip(): void }]>;
 
 export abstract class Container<T extends Node = Node> extends Node {
   protected _nodes: T[] = [];
@@ -144,6 +133,14 @@ export abstract class Container<T extends Node = Node> extends Node {
 
   set nodes(nodes: readonly T[]) {
     this._nodes = this.normalize(nodes as T[]);
+  }
+
+  get first() {
+    return this.nodes[0];
+  }
+
+  get last() {
+    return this.nodes[this.nodes.length - 1];
   }
 
   push(...children: T[]) {
@@ -264,28 +261,80 @@ export abstract class Container<T extends Node = Node> extends Node {
   }
 }
 
-export type ListItem = Value | Operator | List;
-
 export class List extends Container<ListItem> {
   type = 'list' as const;
 
-  constructor(nodes: readonly ListItem[], public separator?: Separator) {
+  constructor(
+    nodes: readonly ListItem[],
+    public separator?: Separator,
+    public brackets = false,
+  ) {
     super(nodes);
   }
 
-  static fromTokens(head: Value, tail: Array<[Separator, Value]>) {
-    let list = new List([head]);
-    for (const [separator, item] of tail) {
-      if (!list.separator) {
-        list.separator = separator;
-      } else if (list.separator !== separator) {
-        list = new List([list], separator);
-      }
+  // a b, c d, f, g
+  // a/b c/d, e
+  // [a, b]
+  // [[a, b], c]
+  // [a, ' ', b, ',', 'c' ',' 'd', ' ', 'c']
 
-      list.push(item);
+  /**
+   * this is super IFFY
+   * but we can infer the nesting of unparameterized lists for 3 levels by
+   * assuming consistent use of seperators
+   */
+  static fromTokens(head: ListItem, tail: Array<[Separator, ListItem]>) {
+    const first = new List([head]);
+    let current = first;
+    let parent: List | undefined;
+
+    for (const [separator, item] of tail) {
+      if (!current.separator) {
+        current.separator = separator;
+      } else if (current.separator !== separator) {
+        // console.log(
+        //   'D',
+        //   current.toString(),
+        //   '   |',
+        //   item.toString(),
+        //   '|',
+        //   separator,
+        //   '|',
+        //   parents?.[0]?.toString(),
+        //   parents.length && separator === parents[0].separator,
+        // );
+
+        if (separator === parent?.separator) {
+          current = parent;
+        } else if (first.separator === separator) {
+          const { last } = current;
+          if (last.type === 'list' && last === first) {
+            last.push(item);
+            last.separator = separator;
+          } else {
+            current = new List([last.clone()], separator);
+            last.replaceWith(current);
+          }
+        } else {
+          parent = current = new List([parent ?? current], separator);
+        }
+      }
+      current.push(item);
     }
 
-    return list;
+    return parent || current;
+  }
+
+  equalTo(list: List): boolean {
+    return (
+      this.separator === list.separator &&
+      this.nodes.length === list.nodes.length &&
+      this.nodes.every(
+        (item, idx) =>
+          item.type === list.nodes[idx].type &&
+          item.equalTo(list.nodes[idx] as any),
+      )
+    );
   }
 
   toString() {
@@ -296,22 +345,39 @@ export class List extends Container<ListItem> {
     if (this.separator === ',') sep += ' ';
 
     for (const [idx, node] of this.nodes.entries()) {
-      result +=
-        idx !== this.nodes.length - 1
-          ? `${node.toString()}${sep}`
-          : node.toString();
+      result += this.nodeNeedsParens?.(node)
+        ? `(${node.toString()})`
+        : node.toString();
+
+      if (idx !== this.nodes.length - 1) {
+        result += sep;
+      }
+    }
+    if (this.brackets) result = `[${result}]`;
+    return result;
+  }
+
+  private nodeNeedsParens(item: ListItem) {
+    if (item.type === 'list') {
+      if (item.nodes.length < 2 || item.brackets) return false;
+      return this.separator === item.separator;
     }
 
-    return result;
+    if (this.separator !== ' ') return false;
+    return false;
   }
 }
 
-export class Expression extends Container<ExpressionTerm | Expression> {
-  type = 'expression' as const;
+export class Map extends Container<List> {
+  type = 'map' as const;
+
+  constructor(nodes: readonly ListItem[], public separator?: Separator) {
+    super(nodes);
+  }
 }
 
-export class Root<T extends Node = ChildNode> extends Container<T> {
-  type = 'root' as const;
+export class DeclarationValue<T extends Node = ListItem> extends Container<T> {
+  type = 'declaration-value' as const;
 
   get body() {
     return this.nodes[0];
@@ -339,6 +405,10 @@ export class Numeric extends Node {
 
   toString() {
     return `${this.value}${this.unit || ''}`;
+  }
+
+  equalTo(other: Numeric) {
+    return other.convert(this.unit).value === this.value;
   }
 
   convert(toUnit: string | null, precision = 5) {
@@ -380,6 +450,15 @@ export class Color extends Node {
     return isValid(name);
   }
 
+  equalTo(other: Color) {
+    return (
+      channel(this.value, 'r') === channel(other.value, 'r') &&
+      channel(this.value, 'g') === channel(other.value, 'g') &&
+      channel(this.value, 'b') === channel(other.value, 'b') &&
+      channel(this.value, 'a') === channel(other.value, 'a')
+    );
+  }
+
   toString() {
     return `${this.value}`;
   }
@@ -391,16 +470,59 @@ export class Url extends Node {
   constructor(public value: string, public quoted: boolean) {
     super();
   }
+
+  equalTo(other: Url) {
+    return other.value === this.value;
+  }
 }
 
 export const SINGLE = "'" as const;
 export const DOUBLE = '"' as const;
+
+export class NullLiteral extends Node {
+  type = 'null' as const;
+
+  readonly value = null;
+
+  toString() {
+    return `null`;
+  }
+
+  equalTo(other: NullLiteral): boolean {
+    return this.value === other.value;
+  }
+}
+
+export class BooleanLiteral extends Node {
+  type = 'boolean' as const;
+
+  constructor(public value: boolean) {
+    super();
+  }
+
+  toString() {
+    return `${this.value}`;
+  }
+
+  negate() {
+    this.value = !this.value;
+    return this;
+  }
+
+  equalTo(other: BooleanLiteral): boolean {
+    return this.value === other.value;
+  }
+}
 
 export class StringLiteral extends Node {
   type = 'string' as const;
 
   constructor(public value: string, public quote: '"' | "'") {
     super();
+  }
+
+  equalTo(other: StringLiteral | Ident): boolean {
+    return this.value === (other.type === 'ident' ? other.name : other.value);
   }
 
   toString() {
@@ -473,6 +595,14 @@ export class Operator extends Node {
     super();
   }
 
+  get precedence() {
+    return PRECEDENCE[this.value];
+  }
+
+  equalTo(other: StringLiteral | Ident | Operator): boolean {
+    return StringLiteral.prototype.equalTo.call(this, other);
+  }
+
   toString() {
     return `${this.value}`;
   }
@@ -483,18 +613,6 @@ export type Space = ' ';
 export type Slash = '/';
 
 export type Separator = Comma | Space | Slash;
-
-// export class Separator extends Node {
-//   type = 'separator' as const;
-
-//   constructor(public value: ',' | ' ' | '/') {
-//     super();
-//   }
-
-//   toString() {
-//     return `${this.value}`;
-//   }
-// }
 
 export class Variable extends Node {
   type = 'variable' as const;
@@ -508,14 +626,6 @@ export class Variable extends Node {
   }
 }
 
-export class NotKeyword extends Node {
-  type = 'not-keyword' as const;
-}
-
-export class OrKeyword extends Node {
-  type = 'or-keyword' as const;
-}
-
 export class Ident extends Node {
   type = 'ident' as const;
 
@@ -525,6 +635,10 @@ export class Ident extends Node {
 
   get isCustomProperty() {
     return this.name.startsWith('--');
+  }
+
+  equalTo(other: StringLiteral | Ident): boolean {
+    return this.name === (other.type === 'ident' ? other.name : other.value);
   }
 
   toString() {
@@ -583,15 +697,12 @@ export class Function extends Container<ListItem> {
   // }
 }
 
-export class MathFunction extends Container<BinaryExpressionTerm> {
+export class MathFunction extends Container<Expression> {
   type = 'math-function' as const;
 
   readonly separator: Separator | undefined = ',';
 
-  constructor(
-    public name: 'clamp' | 'min' | 'max',
-    params: BinaryExpressionTerm[],
-  ) {
+  constructor(public name: 'clamp' | 'min' | 'max', params: Expression[]) {
     // unwrap nested calcs
     super(params?.map((p) => (p.type === 'calc' ? p.expression : p)));
   }
@@ -601,10 +712,10 @@ export class MathFunction extends Container<BinaryExpressionTerm> {
   }
 }
 
-export class Calc extends Container<BinaryExpressionTerm> {
+export class Calc extends Container<Expression> {
   type = 'calc' as const;
 
-  constructor(expression: BinaryExpressionTerm) {
+  constructor(expression: Expression) {
     super([expression]);
   }
 
@@ -612,7 +723,7 @@ export class Calc extends Container<BinaryExpressionTerm> {
     return this.nodes[0];
   }
 
-  set expression(expr: BinaryExpressionTerm) {
+  set expression(expr: Expression) {
     this.nodes[0].replaceWith(expr);
   }
 
@@ -704,15 +815,10 @@ export class InterpolatedIdent extends Container<ListItem> {
   }
 }
 
-export type BinaryExpressionTerm = Value | BinaryExpression | UnaryExpression;
-
-export class UnaryExpression extends Container<BinaryExpressionTerm> {
+export class UnaryExpression extends Container<Expression> {
   type = 'unary-expression' as const;
 
-  constructor(
-    public operator: UnaryOperators,
-    argument: BinaryExpressionTerm,
-  ) {
+  constructor(public operator: UnaryOperators, argument: Expression) {
     super([argument]);
   }
 
@@ -720,7 +826,7 @@ export class UnaryExpression extends Container<BinaryExpressionTerm> {
     return this.nodes[0];
   }
 
-  set argument(argument: BinaryExpressionTerm) {
+  set argument(argument: Expression) {
     this.nodes[0].replaceWith(argument);
   }
 
@@ -737,21 +843,17 @@ export class UnaryExpression extends Container<BinaryExpressionTerm> {
 export class BinaryExpression extends Container {
   type = 'binary-expression' as const;
 
-  readonly nodes!: [BinaryExpressionTerm, Operator, BinaryExpressionTerm];
+  readonly nodes!: [Expression, Operator, Expression];
 
-  constructor(
-    left: BinaryExpressionTerm,
-    operator: Operator,
-    right: BinaryExpressionTerm,
-  ) {
+  constructor(left: Expression, operator: Operator, right: Expression) {
     super([left, operator, right]);
   }
 
-  get left(): BinaryExpressionTerm {
+  get left(): Expression {
     return this.nodes[0] as any;
   }
 
-  set left(left: BinaryExpressionTerm) {
+  set left(left: Expression) {
     this.nodes[0].replaceWith(left);
   }
 
@@ -763,29 +865,33 @@ export class BinaryExpression extends Container {
     this.nodes[1].replaceWith(op);
   }
 
-  get right(): BinaryExpressionTerm {
+  get right(): Expression {
     return this.nodes[2] as any;
   }
 
-  set right(right: BinaryExpressionTerm) {
+  set right(right: Expression) {
     this.nodes[2].replaceWith(right);
   }
 
   toString(): string {
     const leftStr = this.left.toString();
-    const left =
-      this.left.type === 'binary-expression' ? `(${leftStr})` : leftStr;
+    const leftNeedsParens =
+      this.left.type === 'binary-expression' &&
+      this.left.operator.precedence < this.operator.precedence;
+
+    const left = leftNeedsParens ? `(${leftStr})` : leftStr;
 
     const rightStr = this.right.toString();
-    const right =
-      this.right.type === 'binary-expression' ? `(${rightStr})` : rightStr;
+    const rightNeedsParens =
+      this.right.type === 'binary-expression' &&
+      this.right.operator.precedence <= this.operator.precedence;
+
+    const right = rightNeedsParens ? `(${rightStr})` : rightStr;
+
     return `${left} ${this.operator.toString()} ${right}`;
   }
 
-  static fromTokens(
-    head: BinaryExpressionTerm,
-    tail: Array<[Operator, BinaryExpressionTerm]>,
-  ) {
+  static fromTokens(head: Expression, tail: Array<[Operator, Expression]>) {
     let result = head;
 
     for (let [op, right] of tail) {
@@ -853,7 +959,7 @@ export class ExportSpecifier extends Node {
   }
 }
 
-export class Export extends Container {
+export class Export extends Container<ExportSpecifier | ExportAllSpecifier> {
   type = 'export' as const;
 
   constructor(
@@ -867,6 +973,33 @@ export class Export extends Container {
   }
 
   get specifiers() {
-    return this.nodes as Array<ExportSpecifier | ExportAllSpecifier>;
+    return this.nodes;
   }
+}
+
+export class ForCondition extends Container<Expression> {
+  type = 'for-condition' as const;
+
+  constructor(
+    public variable: Variable,
+    from: Expression,
+    to: Expression,
+    public exclusive = true,
+  ) {
+    super([from, to]);
+  }
+
+  get from() {
+    return this.nodes[0];
+  }
+
+  get to() {
+    return this.nodes[1];
+  }
+
+  // toString() {
+  //   return `${this.variable} from ${this.from} ${
+  //     this.exclusive ? 'to' : 'through'
+  //   } ${this.to} `;
+  // }
 }

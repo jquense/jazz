@@ -1,32 +1,38 @@
-import { mix } from 'khroma';
-
 import {
   ArthimeticOperators,
   BinaryExpression,
-  BinaryExpressionTerm,
+  BooleanLiteral,
   Calc,
+  Expression,
   Function,
+  Ident,
+  ListItem,
   MathFunction,
   Numeric,
   Operator,
   Operators,
+  StringLiteral,
+  Value,
 } from './Ast';
 
 export type Term = Numeric | Calc | MathFunction | Function;
 
-const PRECEDENCE: Record<Operators, number> = {
-  '==': 0,
-  '!=': 0,
-  '<': 1,
-  '>': 1,
-  '<=': 1,
-  '>=': 1,
-  '+': 2,
-  '-': 2,
-  '*': 3,
-  '/': 3,
-  '%': 3,
-  '**': 4,
+export const PRECEDENCE: Record<Operators, number> = {
+  'or': 0,
+  'and': 1,
+  'not': 2,
+  '==': 3,
+  '!=': 3,
+  '<': 4,
+  '>': 4,
+  '<=': 4,
+  '>=': 4,
+  '+': 5,
+  '-': 5,
+  '*': 6,
+  '/': 6,
+  '%': 6,
+  '**': 7,
 };
 
 const equalityOperators = {
@@ -40,18 +46,21 @@ const multiplicativeOperators = {
   '%': true,
 };
 
-export const isMathTerm = (term: BinaryExpressionTerm): term is Term =>
+const isStringish = (a: ListItem): a is StringLiteral | Ident =>
+  a.type === 'string' || a.type === 'ident';
+
+// const isEquatable = (a: Value, b: Value) => {
+//   return a.type === b.type || (isStringish(a) && isStringish(b))
+// }
+
+export const isMathTerm = (term: Expression): term is Term =>
   term.type === 'numeric' ||
   term.type === 'calc' ||
   term.type === 'math-function' ||
   term.type === 'function';
 
-export const isValidCalcFunction = ({ name, isVar }: Function): boolean =>
-  isVar ||
-  name.name === 'min' ||
-  name.name === 'max' ||
-  name.name === 'clamp' ||
-  name.name === 'calc';
+export const isResolvableToNumeric = (fn: Value): boolean =>
+  fn.type === 'calc' || fn.type === 'math-function';
 
 export const isArithmeticOperator = (
   op: Operators,
@@ -282,4 +291,45 @@ export function max(terms: Term[], mustReduce = false) {
 
 export function clamp([minVal, val, maxVal]: Term[], mustReduce = false) {
   return max([min([maxVal, val], mustReduce), minVal], mustReduce);
+}
+
+export function gt(a: Numeric, b: Numeric) {
+  return new BooleanLiteral(a.value > b.convert(a.unit).value);
+}
+
+export function gte(a: Numeric, b: Numeric) {
+  return new BooleanLiteral(a.value >= b.convert(a.unit).value);
+}
+
+export function lt(a: Numeric, b: Numeric) {
+  return new BooleanLiteral(a.value < b.convert(a.unit).value);
+}
+
+export function lte(a: Numeric, b: Numeric) {
+  return new BooleanLiteral(a.value <= b.convert(a.unit).value);
+}
+
+export function eq(a: ListItem, b: ListItem) {
+  if (a.type !== b.type) {
+    if (isStringish(a) && isStringish(b)) {
+      return new BooleanLiteral(a.equalTo(b));
+    }
+    return new BooleanLiteral(false);
+  }
+
+  if (a.type === 'numeric' && b.type === 'numeric') {
+    return new BooleanLiteral(a.equalTo(b));
+  }
+  if (a.type === 'color' && b.type === 'color') {
+    return new BooleanLiteral(a.equalTo(b));
+  }
+  if (a.type === 'list' && b.type === 'list') {
+    return new BooleanLiteral(a.equalTo(b));
+  }
+
+  return new BooleanLiteral(a.equalTo(b as any));
+}
+
+export function neq(a: ListItem, b: ListItem) {
+  return eq(a, b).negate();
 }

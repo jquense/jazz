@@ -17,6 +17,7 @@ const generate = async () => {
         'at_composes',
         'values',
         'declaration',
+        'for_condition',
 
         // for tests
         'UnaryExpression',
