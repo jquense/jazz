@@ -23,9 +23,12 @@ function getOrAdd<T extends postcss.Node, U>(
 }
 
 class Parser {
-  private propCache = new WeakMap<postcss.Declaration, Ast.Root>();
+  private propCache = new WeakMap<postcss.Declaration, Ast.DeclarationValue>();
 
-  private valueCache = new WeakMap<postcss.Declaration, Ast.Root>();
+  private valueCache = new WeakMap<
+    postcss.Declaration,
+    Ast.DeclarationValue
+  >();
 
   private importsCache = new WeakMap<postcss.AtRule, Ast.Import>();
 
@@ -59,7 +62,7 @@ class Parser {
 
   prop(decl: postcss.Declaration) {
     return getOrAdd(this.propCache, decl, () =>
-      this.parse(decl.prop, { startRule: 'declaration' }),
+      this.parse(decl.prop, { startRule: 'declaration_prop' }),
     );
   }
 
@@ -76,7 +79,8 @@ class Parser {
   }
 
   parse(input: string, opts: IParseOptions) {
-    const tracer = this.trace ? new Tracer(input) : { trace() {} };
+    const tracer =
+      opts.tracer || (this.trace ? new Tracer(input) : { trace() {} });
     try {
       return parse(input, { tracer, ...opts });
     } catch (err) {
@@ -91,10 +95,20 @@ class Parser {
     );
   }
 
+  eachCondition(node: postcss.AtRule): Ast.EachCondition {
+    return getOrAdd(this.forConditionCache, node, () =>
+      this.parse(node.params, { startRule: 'each_condition' }),
+    );
+  }
+
   forCondition(node: postcss.AtRule): Ast.ForCondition {
     return getOrAdd(this.forConditionCache, node, () =>
       this.parse(node.params, { startRule: 'for_condition' }),
     );
+  }
+
+  selector(selector: string) {
+    return this.parse(selector, { startRule: 'selector' }) as Ast.SelectorList;
   }
 }
 

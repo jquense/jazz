@@ -1,6 +1,11 @@
+import prettier from 'prettier';
+
 expect.extend({
   toMatchCss(received, argument) {
-    if (received.replace(/\s/g, '') === argument.replace(/\s/g, '')) {
+    if (
+      prettier.format(received, { parser: 'scss' }) ===
+      prettier.format(argument, { parser: 'scss' })
+    ) {
       return {
         message: () => `expected ${received} not to match CSS ${argument}`,
         pass: true,

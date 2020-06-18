@@ -1,14 +1,8 @@
-import { fstat } from 'fs';
-
 import postcss from 'postcss';
 
 import * as Ast from '../../parsers/Ast';
 import Scope from '../../utils/Scope';
 import plugin from '../value-processing';
-
-type DeepPartial<T> = T extends object
-  ? { [K in keyof T]?: DeepPartial<T[K]> }
-  : T;
 
 describe('value-processing', () => {
   function run(css: string, scope = new Scope()) {
@@ -53,6 +47,7 @@ describe('value-processing', () => {
 
         .foo {
           #{$prefix}transition: all 5s;
+          a: ~"#{$prefix}transition";
         }
       `,
     );
@@ -60,6 +55,7 @@ describe('value-processing', () => {
     expect(css).toMatchCss(`
       .foo {
         -webkit-transition: all 5s;
+        a: -webkit-transition;
       }
     `);
 
@@ -271,21 +267,6 @@ describe('value-processing', () => {
       expect(css).toMatchCss(`.foo { color: blue }`);
     });
 
-    it.each([
-      ['5px + 10px > 4'],
-      ['(null or 5px )== 5px'],
-      ['(5px or false) == 5px'],
-      ['false or 5px == 5px'],
-      ['(5px and 6em) == 6em'],
-      ['10 % 3 == 1'],
-      ['5px + calc(5px + 2px) == 12px'],
-      // ['calc(5em + 2px) == 12px'], // should throw
-    ])('evaluates true %s', async (expression) => {
-      const { css } = await run(`.a { @if ${expression} { a: true } }`);
-
-      expect(css).toMatchCss(`.a { a: true }`);
-    });
-
     it('should evaluate strings @if', async () => {
       const { css } = await run(`
         .foo {
@@ -373,23 +354,56 @@ describe('value-processing', () => {
       expect(css).toMatchCss(`.foo { color: blue }`);
     });
 
-    it('should not shadow', async () => {
-      const { css } = await run(`
-        .foo {
-          @if 1in == 96px {
-            color: blue
-          }
-        }
-      `);
+    // it('should not shadow', async () => {
+    //   const { css } = await run(`
+    //     .foo {
+    //       @if 1in == 96px {
+    //         color: blue
+    //       }
+    //     }
+    //   `);
 
-      expect(css).toMatchCss(`.foo { color: blue }`);
+    //   expect(css).toMatchCss(`.foo { color: blue }`);
+    // });
+
+    it.each([
+      ['5px + 10px > 4'],
+      ['(null or 5px) == 5px'],
+      ['(5px or false) == 5px'],
+      ['false or 5px == 5px'],
+      ['(5px and 6em) == 6em'],
+      ['10 % 3 == 1'],
+      ['(10px) == 10'],
+      ['(10,) != 10'],
+      ['(10, 10) == (10, 10)'],
+      ['(10, 10) != [10, 10]'],
+      ['(10, 10) != (10 10)'],
+      ['(10, 10) != (10 / 10)'],
+
+      ['96px == 1in'],
+      ['(10: 96px, "foo": bar) == (10: 1in, foo: "bar")'],
+
+      ['5px + calc(5px + 2px) == 12px'],
+    ])('is true:  %s', async (expression) => {
+      const { css } = await run(`.a { @if ${expression} { a: true } }`);
+
+      expect(css).toMatchCss(`.a { a: true }`);
+    });
+
+    it('should throw on unresolvable calc', async () => {
+      await expect(
+        run(`.a { @if calc(5em + 2px) == 12px { a: true } }`),
+      ).rejects.toThrow(
+        'Cannot evaluate calc(5em + 2px) == 12px. ' +
+          'Math functions must be resolvable when combined outside of another math function',
+      );
     });
   });
 
-  describe('@for loop', () => {
+  describe('@each loop', () => {
     it('should evaluate exclusive loop', async () => {
       const { css } = await run(`
-        @for $i from 0 to 10 {
+        @each $i in 0 to 10 {
           a: $i
         }
       `);
@@ -410,7 +424,7 @@ describe('value-processing', () => {
 
     it('should evaluate inclusive loop', async () => {
       const { css } = await run(`
-        @for $i from 0 through 5 {
+        @each $i in 0 through 5 {
           a: $i
         }
       `);
@@ -427,7 +441,7 @@ describe('value-processing', () => {
 
     it('should start from', async () => {
       const { css } = await run(`
-        @for $i from 3 through 5 {
+        @each $i in 3 through 5 {
           a: $i
         }
       `);
@@ -439,11 +453,67 @@ describe('value-processing', () => {
       `);
     });
 
+    it('should iterate over lists', async () => {
+      const { css } = await run(`
+        @each $i in (1 2 3) {
+          a: $i
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 1;
+        a: 2;
+        a: 3
+      `);
+    });
+
+    it('should destructure nested lists', async () => {
+      const { css } = await run(`
+        @each $i, $j in (1 2, 3 4, 5 6) {
+          a: $i $j
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 1 2;
+        a: 3 4;
+        a: 5 6
+      `);
+    });
+
+    it('should destructure nested maps', async () => {
+      const { css } = await run(`
+        @each $i, $j in (1: 2, 3: 4, 5: 6) {
+          a: $i $j
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 1 2;
+        a: 3 4;
+        a: 5 6
+      `);
+    });
+
+    it('should leave undefined members', async () => {
+      const { css } = await run(`
+        @each $i, $j in (1, 3, 5) {
+          a: $i $j
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        a: 1;
+        a: 3;
+        a: 5
+      `);
+    });
+
     it('should maintain scope', async () => {
       const { css } = await run(`
         $a: 1;
 
-        @for $i from 3 through 5 {
+        @each $i in 3 through 5 {
           a: calc($i + $a);
         }
       `);
@@ -458,13 +528,65 @@ describe('value-processing', () => {
     it('should not leak scope', async () => {
       await expect(
         run(`
-          @for $i from 3 through 5 {
+          @each $i in 3 through 5 {
             a: $i
           }
 
           .foo { b: $i; }
         `),
       ).rejects.toThrowError('Variable not defined $i');
+    });
+  });
+
+  describe('selectors', () => {
+    it('should resolve selectors', async () => {
+      const { css } = await run(`
+        $a: ~'.a';
+        $b: disabled;
+
+        #{$a} .b > c[#{$b}], #{$a}-child {
+          a: a;
+        }
+      `);
+
+      expect(css).toMatchCss(`
+        .a .b > c[disabled], .a-child {
+          a: a;
+        }
+      `);
+    });
+
+    describe('nesting', () => {
+      async function processSelectorTestCase([input, expected]: [
+        string,
+        string,
+      ]) {
+        const { css } = await run(input);
+        console.log(css);
+        expect(css).toMatchCss(expected);
+      }
+
+      it.only('should resolve nesting', () => {
+        return Promise.all(
+          [
+            // [`.a { .b {} }`, `.a { .a .b {} }`],
+            // [`.a { .b & {} }`, `.a { .b .a {} }`],
+            [
+              `
+                .a,
+                .b {
+                  &-c {
+                    d: d
+                  }
+                }
+              `,
+              `.a, .b {
+                .a-c, .b-c {}
+               }`,
+            ],
+          ].map(processSelectorTestCase),
+        );
+      });
     });
   });
   // it('should complain about redefining', async () => {

@@ -1,9 +1,8 @@
 import type { AtRule } from 'postcss';
 
 import Parser from '../parsers';
-import * as Ast from '../parsers/Ast';
 import { PostcssPlugin, PostcssProcessOptions } from '../types';
-import Scope, { FunctionMember } from '../utils/Scope';
+import Scope from '../utils/Scope';
 import { EXPORTS } from '../utils/Symbols';
 import { isBuiltin, loadBuiltIn } from './modules';
 
@@ -32,19 +31,18 @@ export function transformAtFrom(
 
   for (const specifier of specifiers) {
     if (specifier.type === 'namespace' && exports) {
-      scope.from(exports, specifier.local.name);
+      scope.from(exports, specifier.local.value);
     }
     if (specifier.type === 'named') {
       const other = exports.get(specifier.imported);
 
       if (!other) {
-        throw rule.error(
-          `"${source}" does not export the variable $${specifier.imported.name}`,
-          { word: `$${specifier.imported.name}` },
-        );
+        throw rule.error(`"${source}" does not export ${specifier.imported}`, {
+          word: `${specifier.imported}`,
+        });
       }
 
-      scope.set(specifier.local as any, other as any, otherFile);
+      scope.set(specifier.local, other, otherFile);
     }
   }
   // console.log('my', file.scope);

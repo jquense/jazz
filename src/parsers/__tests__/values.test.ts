@@ -7,13 +7,19 @@ import {
   BooleanLiteral,
   Calc,
   DOUBLE,
+  EachCondition,
   Ident,
   InterpolatedIdent,
+  Interpolation,
   List,
+  Map,
+  Node,
   NullLiteral,
   Numeric,
   Operator,
   Operators,
+  ParentSelector,
+  Range,
   SINGLE,
   StringLiteral,
   StringTemplate,
@@ -29,30 +35,32 @@ const comma = ',' as const;
 const space = ' ' as const;
 
 describe('parser: values', () => {
-  let parse: (input: string) => any;
-  beforeEach(() => {
-    const parser = new Parser({ trace: false });
+  let parser: Parser;
+  let startRule = 'values';
 
-    parse = (input: string) => {
-      const result = parser.parse(input, { startRule: 'values' });
-      // if (unwrap && result.nodes.length <= 1) {
-      //   result = result.nodes[0];
-      //   if (result) result.parent = null;
-      // }
-      return result;
-    };
+  beforeEach(() => {
+    parser = new Parser({ trace: false });
+    startRule = 'values';
   });
 
-  it.each([
-    ['1', new Numeric(1)],
-    ['1.54', new Numeric(1.54)],
-    ['-1.54', new Numeric(-1.54)],
-    ['1%', new Numeric(1, '%')],
-    ['1px', new Numeric(1, 'px')],
-    ['1.3yolo', new Numeric(1.3, 'yolo')],
-    ['1cm', new Numeric(1, 'cm')],
-  ])('parses numbers %s', (input, expected) => {
+  function parse(input: string) {
+    return parser.parse(input, { startRule, source: false });
+  }
+
+  function processTestCases(input: string, expected: Node) {
     expect(parse(input)).toEqual(expected);
+  }
+
+  describe('Numeric', () => {
+    it.each([
+      ['1', new Numeric(1)],
+      ['1.54', new Numeric(1.54)],
+      ['-1.54', new Numeric(-1.54)],
+      ['1%', new Numeric(1, '%')],
+      ['1px', new Numeric(1, 'px')],
+      ['1.3yolo', new Numeric(1.3, 'yolo')],
+      ['1cm', new Numeric(1, 'cm')],
+    ])('%s', processTestCases);
   });
 
   describe('literals', () => {
@@ -60,55 +68,58 @@ describe('parser: values', () => {
       ['true', new BooleanLiteral(true)],
       ['false', new BooleanLiteral(false)],
       ['null', new NullLiteral()],
-    ])('%s', (input, expected) => {
-      expect(parse(input)).toEqual(expected);
-    });
+    ])('%s', processTestCases);
   });
 
-  it.each([
-    // variables
-    ['$bar', new Variable('bar')],
-    ['foo.$bar', new Variable('bar', 'foo')],
-    [
-      "$bar + 'blue'",
-      new List(
-        [new Variable('bar'), op('+'), new StringLiteral('blue', SINGLE)],
-        space,
-      ),
-    ],
-  ])('parses variables %s', (input, expected) => {
-    expect(parse(input)).toEqual(expected);
+  describe('variables', () => {
+    it.each([
+      ['$bar', new Variable('bar')],
+      ['foo.$bar', new Variable('bar', 'foo')],
+      [
+        "$bar + 'blue'",
+        new BinaryExpression(
+          new Variable('bar'),
+          op('+'),
+          new StringLiteral('blue', SINGLE),
+        ),
+      ],
+    ])('%s', processTestCases);
   });
 
-  it.each([
-    [
-      '"hi #{$name}"',
-      new StringTemplate(['hi ', ''], [new Variable('name')], DOUBLE),
-    ],
-    ['"hi $name"', new StringLiteral('hi $name', DOUBLE)],
-    ['"#{1}px"', new StringTemplate(['', 'px'], [new Numeric(1)], DOUBLE)],
-  ])('parses strings %s', (input, expected) => {
-    expect(parse(input)).toEqual(expected);
+  describe('strings', () => {
+    it.each([
+      [
+        '"hi #{$name}"',
+        new StringTemplate(['hi ', ''], [new Variable('name')], DOUBLE),
+      ],
+      ['"hi $name"', new StringLiteral('hi $name', DOUBLE)],
+      ['"#{1}px"', new StringTemplate(['', 'px'], [new Numeric(1)], DOUBLE)],
+      [
+        '~"hi #{$name}"',
+        new StringTemplate(['hi ', ''], [new Variable('name')]),
+      ],
+      ['~"hi there"', new StringLiteral('hi there')],
+      ["~'hi there'", new StringLiteral('hi there')],
+    ])('%s', processTestCases);
   });
 
-  it.each([
-    [
-      'rgba(1,2,3)',
-      new AstFunction(
-        new Ident('rgba'),
-        new List([new Numeric(1), new Numeric(2), new Numeric(3)], comma),
-      ),
-    ],
-    [
-      'color.rgba(1 2 3)',
-      new AstFunction(
-        new Ident('rgba', 'color'),
-        new List([new Numeric(1), new Numeric(2), new Numeric(3)], space),
-      ),
-    ],
-  ])('parses functions %s', (input, expected) => {
-    // expect(parse(input)).toEqual({});
-    expect(parse(input)).toEqual(expected);
+  describe('functions', () => {
+    it.each([
+      [
+        'rgba(1,2,3)',
+        new AstFunction(
+          new Ident('rgba'),
+          new List([new Numeric(1), new Numeric(2), new Numeric(3)], comma),
+        ),
+      ],
+      [
+        'color.rgba(1 2 3)',
+        new AstFunction(
+          new Ident('rgba', 'color'),
+          new List([new Numeric(1), new Numeric(2), new Numeric(3)], space),
+        ),
+      ],
+    ])('%s', processTestCases);
   });
 
   describe('calc', () => {
@@ -245,9 +256,7 @@ describe('parser: values', () => {
           ),
         ),
       ],
-    ])('%s', (input, expected) => {
-      expect(parse(input)).toEqual(expected);
-    });
+    ])('%s', processTestCases);
   });
 
   describe('identifiers', () => {
@@ -261,14 +270,25 @@ describe('parser: values', () => {
       ['-#{bar}', new InterpolatedIdent(['-', ''], [new Ident('bar')])],
       ['foo, bar', new List([new Ident('foo'), new Ident('bar')], comma)],
       ['--bar', new Ident('--bar')],
-    ])('%s', (input, expected) => {
-      expect(parse(input)).toEqual(expected);
-    });
+    ])('%s', processTestCases);
   });
 
   describe('lists', () => {
     it.each([
-      ['bar foo', new List([new Ident('bar'), new Ident('foo')], space)],
+      ['()', new List([])],
+      ['[ ]', new List([], undefined, true)],
+
+      ['[bar]', new List([new Ident('bar')], undefined, true)],
+      ['(bar)', new Ident('bar')],
+      ['(bar,)', new List([new Ident('bar')], comma)],
+      ['(bar/)', new List([new Ident('bar')], '/')],
+
+      ['bar foo ', new List([new Ident('bar'), new Ident('foo')], space)],
+      [
+        '$bar$foo',
+        new List([new Variable('bar'), new Variable('foo')], space),
+      ],
+      ['$bar&', new List([new Variable('bar'), new ParentSelector()], space)],
       [
         `bar
       foo`,
@@ -295,29 +315,99 @@ describe('parser: values', () => {
           comma,
         ),
       ],
-
       [
-        '(a, b, c)',
-        new List([new Ident('a'), new Ident('b'), new Ident('c')], comma),
+        'a b, c ,',
+        new List(
+          [new List([new Ident('a'), new Ident('b')], space), new Ident('c')],
+          comma,
+        ),
+      ],
+      [
+        'a b, e f',
+        new List(
+          [
+            new List([new Ident('a'), new Ident('b')], space),
+            new List([new Ident('e'), new Ident('f')], space),
+          ],
+          comma,
+        ),
+      ],
+      [
+        'a b / e f',
+        new List(
+          [
+            new List([new Ident('a'), new Ident('b')], space),
+            new List([new Ident('e'), new Ident('f')], space),
+          ],
+          '/',
+        ),
+      ],
+      [
+        'a (b / e) f',
+        new List(
+          [
+            new Ident('a'),
+            new List([new Ident('b'), new Ident('e')], '/'),
+            new Ident('f'),
+          ],
+          ' ',
+        ),
+      ],
+      [
+        'a b, e f / g',
+        new List(
+          [
+            new List([new Ident('a'), new Ident('b')], space),
+            new List(
+              [
+                new List([new Ident('e'), new Ident('f')], space),
+                new Ident('g'),
+              ],
+              '/',
+            ),
+          ],
+          comma,
+        ),
       ],
       [
         'a / b / c',
         new List([new Ident('a'), new Ident('b'), new Ident('c')], '/'),
       ],
       [
+        '(a, b, c)',
+        new List([new Ident('a'), new Ident('b'), new Ident('c')], comma),
+      ],
+      [
+        '[a, b, c]',
+        new List(
+          [new Ident('a'), new Ident('b'), new Ident('c')],
+          comma,
+          true,
+        ),
+      ],
+      [
         '1px -1px',
         new List([new Numeric(1, 'px'), new Numeric(-1, 'px')], space),
       ],
+      [
+        '1px -1px -1px',
+        new List(
+          [new Numeric(1, 'px'), new Numeric(-1, 'px'), new Numeric(-1, 'px')],
+          space,
+        ),
+      ],
       ['1px-1px', new Numeric(1, 'px-1px')],
       [
-        '(1cm + 2rem) + "hi"',
+        'a 1cm + 2rem "hi"',
         new List(
           [
-            new List(
-              [new Numeric(1, 'cm'), op('+'), new Numeric(2, 'rem')],
-              space,
+            new Ident('a'),
+            new BinaryExpression(
+              new Numeric(1, 'cm'),
+              op('+'),
+              new Numeric(2, 'rem'),
             ),
-            op('+'),
+
             new StringLiteral('hi', DOUBLE),
           ],
           space,
@@ -328,54 +418,130 @@ describe('parser: values', () => {
         'foo(1px + #{20rem - $baz})',
         new AstFunction(
           new Ident('foo'),
-          new List(
-            [
+          new List([
+            new BinaryExpression(
               new Numeric(1, 'px'),
               op('+'),
-              new List(
-                [new Numeric(20, 'rem'), op('-'), new Variable('baz')],
-                space,
+              new Interpolation(
+                new BinaryExpression(
+                  new Numeric(20, 'rem'),
+                  op('-'),
+                  new Variable('baz'),
+                ),
               ),
-            ],
-            space,
-          ),
+            ),
+          ]),
         ),
       ],
       [
         '#{1}px + #{20rem - $baz}',
 
-        new List(
-          [
-            new InterpolatedIdent(['', 'px'], [new Numeric(1)]),
-            op('+'),
-            new List(
-              [new Numeric(20, 'rem'), op('-'), new Variable('baz')],
-              space,
+        new BinaryExpression(
+          new InterpolatedIdent(['', 'px'], [new Numeric(1)]),
+          op('+'),
+          new Interpolation(
+            new BinaryExpression(
+              new Numeric(20, 'rem'),
+              op('-'),
+              new Variable('baz'),
             ),
-          ],
-          space,
+          ),
         ),
       ],
-    ])('%s', (input, expected) => {
-      expect(parse(input)).toEqual(expected);
-    });
+    ])('%s  ->  %s', processTestCases);
+  });
+
+  describe('maps', () => {
+    it.each([
+      [
+        '(4: 5, 7: 4)',
+        new Map([
+          [new Numeric(4), new Numeric(5)],
+          [new Numeric(7), new Numeric(4)],
+        ]),
+      ],
+      [
+        '(4: 5, 7: 4, )',
+        new Map([
+          [new Numeric(4), new Numeric(5)],
+          [new Numeric(7), new Numeric(4)],
+        ]),
+      ],
+      [
+        "('4': 5,\n'7':/* */4)",
+        new Map([
+          [new StringLiteral('4', SINGLE), new Numeric(5)],
+          [new StringLiteral('7', SINGLE), new Numeric(4)],
+        ]),
+      ],
+      [
+        '(4 + 4: 5, 7: 4)',
+        new Map<any, any>([
+          [
+            new BinaryExpression(new Numeric(4), op('+'), new Numeric(4)),
+            new Numeric(5),
+          ],
+          [new Numeric(7), new Numeric(4)],
+        ]),
+      ],
+    ])('%s', processTestCases);
   });
 
   describe('expressions', () => {
-    beforeEach(() => {
-      const parser = new Parser({ trace: true });
+    describe('and', () =>
+      test.each([
+        [
+          '2 and 5',
+          new BinaryExpression(new Numeric(2), op('and'), new Numeric(5)),
+        ],
+        [
+          '2 and+5',
+          new BinaryExpression(new Numeric(2), op('and'), new Numeric(5)),
+        ],
+        [
+          '2 and[5]',
+          new BinaryExpression(
+            new Numeric(2),
+            op('and'),
+            new List([new Numeric(5)], undefined, true),
+          ),
+        ],
+      ])('%s', processTestCases));
 
-      parse = (input: string) => {
-        const result = parser.parse(input, { startRule: 'Expression' });
-        return result;
-      };
-    });
+    describe('or', () =>
+      test.each([
+        [
+          '2 or 5',
+          new BinaryExpression(new Numeric(2), op('or'), new Numeric(5)),
+        ],
+        [
+          '2 or+5',
+          new BinaryExpression(new Numeric(2), op('or'), new Numeric(5)),
+        ],
+        [
+          '2 or[5]',
+          new BinaryExpression(
+            new Numeric(2),
+            op('or'),
+            new List([new Numeric(5)], undefined, true),
+          ),
+        ],
+      ])('%s', processTestCases));
+
+    describe('not', () =>
+      test.each([
+        ['not 5', new UnaryExpression('not', new Numeric(5))],
+        ['not(5)', new UnaryExpression('not', new Numeric(5))],
+        ['not$foo', new UnaryExpression('not', new Variable('foo'))],
+        ['not1px', new Ident('not1px')],
+        ['not-1', new Ident('not-1')],
+        [
+          'nOT false',
+          new List([new Ident('nOT'), new BooleanLiteral(false)], ' '),
+        ],
+      ])('%s', processTestCases));
 
     test.each([
-      [
-        '2 >= 5',
-        new BinaryExpression(new Numeric(2), op('>='), new Numeric(5)),
-      ],
       [
         '2 > 5 or 6 == 6',
         new BinaryExpression(
@@ -422,7 +588,7 @@ describe('parser: values', () => {
       ],
       ['-$foo', new UnaryExpression('-', new Variable('foo'))],
       ['-$foo', new UnaryExpression('-', new Variable('foo'))],
-      ['- $foo', new UnaryExpression('-', new Variable('foo'))],
+      // ['- $foo', new UnaryExpression('-', new Variable('foo'))],
 
       ['+$foo', new UnaryExpression('+', new Variable('foo'))],
       ['+ $foo', new UnaryExpression('+', new Variable('foo'))],
@@ -435,25 +601,87 @@ describe('parser: values', () => {
         ),
       ],
       // [],
-    ])('%s', (input, expected) => {
-      expect(parse(input)).toEqual(expected);
-    });
+    ])('%s', processTestCases);
   });
 
-  // it.each([
-  //   ['#{30,}', 'Unexpected trailing comma'],
-  //   ['foo, bar,', 'Unexpected trailing comma'],
-  // ])('does not parse `%s`', (input, expected) => {
-  //   expect(() => parse(input)).toThrowError(expected);
-  // });
+  describe('each to/through', () => {
+    beforeEach(() => {
+      startRule = 'each_condition';
+    });
 
-  // it('stringifies', () => {
-  //   // console.log(
-  //   //   Other.parse(`hi +`, {
-  //   //     interpolation: { prefix: '#' },
-  //   //     ignoreUnknownWords: true,
-  //   //   }),
-  //   // );
-  //   expect(parse(`#{1 + 3}`)).toEqual({});
-  // });
+    test.each([
+      [
+        '$i, $j in 5 to 6',
+        new EachCondition(
+          [new Variable('i'), new Variable('j')],
+          new Range(new Numeric(5), new Numeric(6), true),
+        ),
+      ],
+      [
+        '$i in $a to 6',
+        new EachCondition(
+          new Variable('i'),
+          new Range(new Variable('a'), new Numeric(6), true),
+        ),
+      ],
+      [
+        '$i in ($a) to 6',
+        new EachCondition(
+          new Variable('i'),
+          new Range(new Variable('a'), new Numeric(6), true),
+        ),
+      ],
+      [
+        '$i in $a or $b to 6',
+        new EachCondition(
+          new Variable('i'),
+          new Range(
+            new BinaryExpression(
+              new Variable('a'),
+              op('or'),
+              new Variable('b'),
+            ),
+            new Numeric(6),
+            true,
+          ),
+        ),
+      ],
+    ])('%s', processTestCases);
+  });
+
+  describe('declaration value', () => {
+    beforeEach(() => {
+      startRule = 'declaration_value';
+    });
+
+    test.each([
+      [
+        'i (can put { anything } balanced) here',
+        new StringLiteral('i (can put { anything } balanced) here'),
+      ],
+      [
+        'i (can put { #{interpolations} } in ) here',
+        new StringTemplate(
+          ['i (can put { ', ' } in ) here'],
+          [new Ident('interpolations')],
+        ),
+      ],
+    ])('%s', processTestCases);
+
+    it('throws on unbalanced inner parens', () => {
+      expect(() => parse('this ( doesnt work')).toThrow('Expected "(", ")"');
+    });
+
+    it('throws on unbalanced inner brackets', () => {
+      expect(() => parse('this { doesnt work')).toThrow(
+        'Expected "(", "\\\\", "{", "}"',
+      );
+    });
+
+    it('throws on unbalanced mixed', () => {
+      expect(() => parse('this ( { ) } doesnt work')).toThrow(
+        'Expected "(", "\\\\", "{", "}"',
+      );
+    });
+  });
 });

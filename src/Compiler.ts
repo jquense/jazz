@@ -35,8 +35,9 @@ class Compiler extends Processor {
   async string(file: string, text: string) {
     const { details } = await super.string(file, text);
 
+    // console.log(details);
     return {
-      values: mapValues(details[EXPORTS], (v) => v.value),
+      values: mapValues(details[EXPORTS].variables, (v) => v.node.toString()),
       classes: details.exports,
       result: details.result,
     };

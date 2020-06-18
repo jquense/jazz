@@ -1,31 +1,44 @@
+/* eslint-disable no-nested-ternary */
 /* eslint-disable no-loop-func */
-import postcss, { AtRule, ChildNode, Declaration } from 'postcss';
+import postcss, { AtRule, ChildNode, Declaration, Rule } from 'postcss';
 
 import Parser from '../parsers';
 import * as Ast from '../parsers/Ast';
 import * as math from '../parsers/math';
 import Scope from './Scope';
 import { isVariableDeclaration } from './Variables';
+import unvendor from './unvendor';
 
-// export function canCalcBeReduced(calc: Ast.Calc) {
-//   if (calc)
-// }
+type Selector =
+  | Ast.SelectorList
+  | Ast.CompoundSelector
+  | Ast.SimpleSelector
+  | Ast.PseudoSelector
+  | Ast.AttributeSelector
+  | Ast.ClassSelector
+  | Ast.UniversalSelector
+  | Ast.ParentSelector
+  | Ast.ClassSelector
+  | Ast.IdSelector;
 
 type Reduceable =
-  | Ast.ListItem
   | Ast.DeclarationValue
   | Ast.Expression
+  | Selector
   | postcss.Node;
 
-type MathExpression = Ast.BinaryExpression & {
-  left: math.Term;
-  right: math.Term;
-};
+type Resolved<T> = T extends Ast.Variable
+  ? never
+  : T extends Ast.List<infer P>
+  ? Ast.List<Resolved<P>>
+  : T extends Ast.DeclarationValue<infer P>
+  ? Ast.DeclarationValue<Resolved<P>>
+  : T;
 
-type Resolved<T> = T extends Ast.Variable ? never : T;
+type ResolvedValue = Resolved<Ast.Value>;
 
-const insertBeforeParent = (node: postcss.ChildNode) =>
-  (node.parent as postcss.Container).insertBefore(node, node.nodes);
+const asComplexNodes = (node: Ast.ComplexSelector | Ast.CompoundSelector) =>
+  node.type === 'compound-selector' ? [node] : node.nodes.slice();
 
 function fixElseIfAtRule(rule?: ChildNode) {
   if (rule?.type !== 'atrule') return rule;
@@ -39,6 +52,17 @@ function fixElseIfAtRule(rule?: ChildNode) {
   return rule;
 }
 
+const selectorPsuedoClasses = [
+  'not',
+  'matches',
+  'current',
+  'any',
+  'has',
+  'host',
+  'host-context',
+];
+
+const selectorPseudoElements = ['slotted'];
 export class Reducer {
   private inCalc = 0;
 
@@ -65,27 +89,44 @@ export class Reducer {
   reduce(node: Reduceable): Resolved<Reduceable> {
     switch (node.type) {
       case 'root':
-        // console.log('ROOOT', node);
         this.reducePostCssNodes(node);
         return node;
       case 'rule':
-        // console.log('RULE', node.nodes);
-
-        this.scope(() => {
-          this.reducePostCssNodes(node);
-        });
+        this.reduceRule(node);
         break;
+      case 'selector-list':
+        return this.reduceSelectorList(node);
 
+      case 'pseudo-selector': {
+        this.reducePseudoSelector(node);
+        break;
+      }
+      // deal with this one directly b/c free interpolations
+      // are parsed as TypeSelectors
+      case 'type-selector': {
+        this.reduceChildren(node);
+        const inner = node.first;
+
+        // this isn't strictly necesary but it makes the AST a bit neater
+        if (Ast.isUnquoted(inner)) {
+          const { value } = inner;
+          const next = new Ast.Ident(inner.value.slice(1));
+          if (value.startsWith('.')) return new Ast.ClassSelector(next);
+          if (value.startsWith('#')) return new Ast.IdSelector(next);
+          if (value === '&') return new Ast.ParentSelector();
+          if (value === '*') return new Ast.UniversalSelector();
+        }
+        break;
+      }
       case 'decl':
         this.reduceDeclaration(node);
 
         break;
       case 'atrule': {
         if (node.name === 'if') this.reduceIfRule(node);
-        else if (node.name === 'for') this.reduceForRule(node);
+        else if (node.name === 'each') this.reduceEachRule(node);
         break;
       }
-
       case 'variable': {
         const variable = this.currentScope.get(node);
 
@@ -94,17 +135,20 @@ export class Reducer {
         }
         return variable.node.clone();
       }
-      case 'numeric':
-      case 'string':
-      case 'color':
-      case 'url':
-      case 'operator':
-        return node;
+      case 'range':
+        return this.reduceRange(node);
 
       case 'list':
+      case 'map':
       case 'declaration-value':
         this.reduceChildren(node);
         break;
+      case 'interpolation':
+        node = this.reduceChildren(node).first;
+        // console.log('I', node.first.remove());
+
+        break;
+
       case 'unary-expression':
         return this.reduceUnaryExpression(node);
       case 'binary-expression':
@@ -121,8 +165,8 @@ export class Reducer {
       }
       case 'math-function':
         this.reduceChildren(node);
-
-        return math[node.name](node.nodes as math.Term[], !this.inCalc);
+        // @ts-ignore
+        return math[node.name.value](node.nodes as math.Term[], !this.inCalc);
       case 'function':
         return this.reduceFunction(node);
 
@@ -131,15 +175,134 @@ export class Reducer {
 
         return new Ast.Ident(node.toString());
       }
+      case 'string-template': {
+        this.reduceChildren(node);
 
+        return node;
+      }
+      case 'numeric':
+      case 'string':
+      case 'color':
+      case 'url':
+      case 'boolean':
+      case 'null':
+      case 'ident':
+      case 'comment':
+      case 'parent-selector':
+      case 'universal-selector':
+        break;
       default:
+        if ('nodes' in node) {
+          this.reduceChildren(node);
+        }
+        break;
     }
 
     return node as any;
   }
 
+  reduceSelectorList(node: Ast.SelectorList) {
+    const parentList = this.currentScope.currentRule;
+    const implicitParent = node.parent?.type !== 'pseudo-selector';
+
+    node = this.reduceChildren(node);
+
+    if (!parentList) {
+      if (!node.hasParentSelectors()) return node;
+      throw node.error(
+        'Top-level selectors may not contain a parent selector "&".',
+      );
+    }
+
+    function resolveCompound(item: Ast.CompoundSelector) {
+      const parentSelector = item.first as Ast.ParentSelector;
+
+      // The compound selector is _just_ the &
+      if (
+        item.nodes.length === 1 &&
+        !parentSelector.suffix &&
+        !parentSelector.prefix
+      ) {
+        return parentList!.nodes;
+      }
+
+      return parentList!.nodes.map((selector) => {
+        let nodes = asComplexNodes(selector.clone());
+
+        // if (last.type !== 'compound-selector') {
+        //   throw selector.error('Parent is invalid for nesting');
+        // }
+        // [span > f.a]
+        // [s-&-b.foo]
+        // [s-span > .a]
+        nodes = Ast.ParentSelector.merge(item, nodes);
+
+        return new Ast.ComplexSelector(nodes);
+      });
+    }
+
+    return new Ast.SelectorList(
+      node.nodes.flatMap((selector) => {
+        const complex = asComplexNodes(selector);
+        if (!selector.hasParentSelectors()) {
+          if (!implicitParent) {
+            return [selector];
+          }
+
+          return parentList.nodes.map(
+            (parentSelector) =>
+              new Ast.ComplexSelector([
+                ...asComplexNodes(parentSelector),
+                ...complex,
+              ]),
+          );
+        }
+
+        let nextSelectors = [[]] as Array<Ast.ComplexSelectorNode>[];
+
+        for (const item of complex) {
+          if (
+            item.type === 'compound-selector' &&
+            item.first.type === 'parent-selector'
+          ) {
+            const resolved = resolveCompound(item);
+            const prev = nextSelectors;
+
+            nextSelectors = [] as Array<Ast.ComplexSelectorNode>[];
+
+            for (const newComplex of prev) {
+              for (const resolvedItem of resolved) {
+                nextSelectors.push([
+                  ...newComplex,
+                  ...asComplexNodes(resolvedItem),
+                ]);
+              }
+            }
+          } else {
+            nextSelectors.forEach((n) => n.push(item));
+          }
+        }
+
+        return nextSelectors.map((n) => new Ast.ComplexSelector(n));
+      }),
+    );
+  }
+
+  reduceRule(node: Rule) {
+    const parsed = this.reduce(
+      this.parser.selector(node.selector),
+    ) as Ast.SelectorList;
+
+    node.selector = parsed.toString();
+
+    this.scope((scope) => {
+      scope.currentRule = parsed;
+      this.reducePostCssNodes(node);
+    });
+  }
+
   reduceDeclaration(node: Declaration) {
-    const parsed = this.reduce(this.parser.value(node));
+    const parsed = this.reduce(this.parser.value(node)) as any;
     // TODO: handle null
     node.value = parsed.toString();
 
@@ -153,35 +316,63 @@ export class Reducer {
       return null;
     }
 
-    node.prop = this.reduce(this.parser.prop(node)).toString();
+    const value = this.reduce(this.parser.prop(node));
+
+    if (value.type === 'null') {
+      node.remove();
+      return null;
+    }
+
+    node.prop = value.toString();
 
     return node;
   }
 
-  reduceForRule(node: AtRule) {
-    const parsed = this.parser.forCondition(node);
-    const fromExpr = this.reduce(parsed.from) as Ast.ReducedExpression;
-    const toExpr = this.reduce(parsed.to) as Ast.ReducedExpression;
+  reduceRange(node: Ast.Range) {
+    return this.reduceChildren(node).toList() as Resolved<Ast.List>;
+  }
 
-    if (fromExpr.type !== 'numeric') {
-      throw node.error(`${fromExpr} is not numeric`);
-    }
-    if (toExpr.type !== 'numeric') {
-      throw node.error(`${toExpr} is not numeric`);
-    }
-    if (!Ast.Numeric.compatible(fromExpr, toExpr)) {
-      throw node.error(
-        `${fromExpr.unit} is not compatible with ${toExpr.unit}`,
+  reducePseudoSelector(node: Ast.PseudoSelector) {
+    node = this.reduceChildren(node);
+
+    const name = unvendor((node.name as Ast.Ident).value);
+
+    if (
+      node.params &&
+      !node.selector &&
+      ((node.isElement && selectorPseudoElements.includes(name)) ||
+        selectorPsuedoClasses.includes(name))
+    ) {
+      node = node.asSelector(
+        this.reduce(
+          this.parser.selector(node.params!.toString() || ''),
+        ) as Ast.SelectorList,
       );
     }
+    return node;
+  }
 
-    const end = parsed.exclusive ? toExpr.value : toExpr.value + 1;
-    const start = fromExpr.value;
+  reduceEachRule(node: AtRule) {
+    const parsed = this.reduceChildren(this.parser.eachCondition(node));
+    const first = parsed.first as Ast.ReducedExpression;
+
+    if (first.type !== 'list' && first.type !== 'map') {
+      throw node.error(`${first} is not iterable`);
+    }
 
     const nodes = [] as ChildNode[];
-    for (let i = start; i < end; i++) {
+    for (const item of first) {
       this.scope((scope) => {
-        scope.set(parsed.variable.clone(), new Ast.Numeric(i));
+        parsed.variables.forEach((v, i) => {
+          scope.set(
+            v.clone(),
+            'nodes' in item
+              ? item.nodes?.[i] ?? new Ast.NullLiteral()
+              : i === 0
+              ? item
+              : (new Ast.NullLiteral() as any),
+          );
+        });
 
         const iter = node.clone({ parent: node.parent });
 
@@ -197,6 +388,7 @@ export class Reducer {
     let result = false;
 
     while (current && current.type === 'atrule') {
+      const ifRule = current; // hints to TS who can't tell scope cb execute immediately
       const next = fixElseIfAtRule(current.next());
 
       if (!result && current.name.endsWith('if')) {
@@ -208,18 +400,18 @@ export class Reducer {
 
         if (result) {
           this.scope(() => {
-            this.reducePostCssNodes(current);
+            this.reducePostCssNodes(ifRule);
 
-            current!.replaceWith(...current!.nodes!);
+            ifRule.replaceWith(...ifRule.nodes!);
           });
         }
       } else if (!result && current.name === 'else') {
         this.scope(() => {
-          current!.replaceWith(...current!.nodes!.map((t) => this.reduce(t)));
+          ifRule!.replaceWith(...ifRule.nodes!.map((t) => this.reduce(t)));
         });
       }
 
-      current.remove();
+      ifRule.remove();
 
       // if we find another @if need to break and let the reducer run it
       if (next?.type === 'atrule' && next.name === 'if') {
@@ -238,11 +430,7 @@ export class Reducer {
       return node;
     }
 
-    node.separateArgumentsBy(',');
-
-    this.reduceChildren(node);
-
-    return fn.fn(...node.nodes);
+    return fn.fn(...this.reduceChildren(node).nodes);
   }
 
   reducePostCssNodes(node: postcss.Container) {
@@ -251,7 +439,7 @@ export class Reducer {
     });
   }
 
-  reduceChildren(node: Ast.Container) {
+  reduceChildren<T extends Ast.Container>(node: T): T {
     const result = [] as any[];
 
     for (const child of node.nodes!) {
@@ -260,6 +448,7 @@ export class Reducer {
     }
 
     node.nodes = result;
+    return node;
   }
 
   reduceUnaryExpression(node: Ast.UnaryExpression) {
@@ -358,5 +547,3 @@ export class Reducer {
     throw new Error(`not implemented: ${op}`);
   }
 }
-
-type ResolvedValue = Exclude<Ast.Value, Ast.Variable>;

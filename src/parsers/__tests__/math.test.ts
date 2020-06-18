@@ -33,7 +33,6 @@ describe('math', () => {
     });
 
     it('should produce a calc from input calc', () => {
-      console.log(calc`1em + 3px + 3px`.nodes);
       expect(add(calc`1em + 3px`, new Numeric(3, 'px'))).toEqual(
         calc`1em + 3px + 3px`,
       );

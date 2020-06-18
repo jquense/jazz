@@ -52,7 +52,7 @@ const exportsPlugin: PostcssPlugin = (css, { opts }) => {
 
         if (!other) {
           throw rule.error(
-            `"${parsed.source}" does not export the variable $${specifier.local.name}`,
+            `"${parsed.source}" does not export ${specifier.local}`,
           );
         }
 

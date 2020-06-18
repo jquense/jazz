@@ -81,10 +81,7 @@ describe('@export', () => {
 
   it.each([
     // [`@export $bar, $foo from './none'`, '"./none" does not export anything'],
-    [
-      `@export $baz, $foo from './other'`,
-      '"./other" does not export the variable $baz',
-    ],
+    [`@export $baz, $foo from './other'`, '"./other" does not export $baz'],
     [`@export ( $baz );`, 'There is no local $baz declared.'],
   ])('should throw variables for: %s', async (css, error) => {
     await expect(() =>

@@ -1,5 +1,21 @@
 {
   const Ast = require('./Ast');
+
+  function init(Node, ...args) {
+    const node = 'type' in Node ? Node : new Node(...args)
+
+    if (options.source !== false)
+      node[Symbol.for('node source')] = { input, ...location() }
+
+    return node
+  }
+
+  function buildExponentialExpression(head, tail) {
+    // Exponentiation is right-associative, maybe move this to AST
+    tail = [[new Ast.Operator('**'), head], ...tail].reverse();
+    [, head] = tail.shift()
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
 }
 
 
@@ -31,16 +47,15 @@ _ "whitespace"
   = [ \t]* line_comment
   / [ \t\n\r\f]* comment* [ \t\n\r\f]*
 
-__ "required whitespace"
+__ "whitespace"
   = [ \t]* line_comment
-  / [ \t\r\n\f]* comment* [ \t\r\n\f]*
-  / [ \t\r\n\f]* comment+ [ \t\r\n\f]+
+  / [ \t\r\n\f]* comment+ [ \t\r\n\f]*
+  / [ \t\r\n\f]* comment* [ \t\r\n\f]+
   / [ \t\r\n\f]+
 
 string "string"
     = '"' chars:([^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)* '"' { return chars.join(""); }
     / "'" chars:([^\n\r\f\\'] / "\\" nl:eol_sequence { return ""; } / escape)* "'" { return chars.join(""); }
-
 
 unquoted_url
   = chars:([!#$%&*-\[\]-~] / nonascii / escape)* { return chars.join(""); }
@@ -82,12 +97,18 @@ integer  = [0-9]+
 
 decimal = [0-9]* "." [0-9]+
 
+colon   = ":"
 
 null    = "null"    !nmchar
 false   = "false"   !nmchar
 true    = "true"    !nmchar
 in      = "in"      !nmchar
-
+not     = "not"     !nmchar
+and     = "and"     !nmchar
+or      = "or"      !nmchar
+from    = "from"    !nmchar
+to      = "to"      !nmchar
+through = "through" !nmchar
 
 num
   = [+-]? (decimal / integer) ("e"i [+-]? [0-9]+)? {
@@ -113,6 +134,16 @@ function "function"
   = name:(ident / namespaced_ident) "(" { return name; }
 
 
+any_value
+  = (Interpolation / [^:!(){}] / escape)+
+  / "(" b:any_value* ")" { return ['(', ...b.flat(), ')'] }
+  / "{" b:any_value* "}" { return ["{" , ...b.flat(),"}"] }
+
+
+combinator
+  = "+" _ { return "+"; }
+  / ">" _ { return ">"; }
+
 
 // AST Nodes
 // ---------------
@@ -121,114 +152,127 @@ function "function"
 Comma
    = "," _  { return "," }
 
+trailing_comma
+  = _ Comma { return ',' }
+
+
 Slash
   = "/" _  { return "/" }
 
+trailing_slash
+  = _ Slash { return '/' }
+
+// this isn't ideal since it makes `to` and `through` invalid words in lists
+// but they are only invalid in for/each conditions. Properly splitting out
+// Expression for these cases involves a bunch of extra rules so meh.
+// could avoid some of this by making `4 to 5` an expression producing a filled list, then
+// for/each loops would be unifiable e.g. `each $i in 5 to 6`
 Space
-  = __  { return " " }
+  = __ !(Comma / Slash / in / ':') { return " " }
 
 
 UnaryOperator
-  = 'not'i { return new Ast.Operator('not') }
+  = '+'
+  / '-'
 
 
 RelationalOperator
-  = __ ">=" __ { return new Ast.Operator(">="); }
-  / __ "<=" __ { return new Ast.Operator("<="); }
-  / __ ">" __  { return new Ast.Operator(">"); }
-  / __ "<" __  { return new Ast.Operator("<"); }
+  = __ ">=" __ { return init(Ast.Operator, ">="); }
+  / __ "<=" __ { return init(Ast.Operator, "<="); }
+  / __ ">" __  { return init(Ast.Operator, ">"); }
+  / __ "<" __  { return init(Ast.Operator, "<"); }
 
 
 EqualityOperator
-  = __ "!=" __ { return new Ast.Operator("!="); }
-  / __ "==" __ { return new Ast.Operator("=="); }
+  = __ "!=" __ { return init(Ast.Operator, "!="); }
+  / __ "==" __ { return init(Ast.Operator, "=="); }
 
 
 AdditiveOperator
-  = __ "+" __  { return new Ast.Operator("+"); }
-  /  __ "-" __ { return new Ast.Operator("-"); }
+  = __ "+" __  { return init(Ast.Operator, "+"); }
+  / __ "-" __  { return init(Ast.Operator, "-"); }
 
 MultiplicativeOperator
-  = __ "*" __  { return new Ast.Operator("*"); }
-  / __ "/" __  { return new Ast.Operator("/"); }
-  / __ "%" __  { return new Ast.Operator("%"); }
+  = __ "*" __  { return init(Ast.Operator, "*"); }
+  / __ "/" __  { return init(Ast.Operator, "/"); }
+  / __ "%" __  { return init(Ast.Operator, "%"); }
 
-ExponetialOperator
-  =  __ "**" __  { return new Ast.Operator("**"); }
+MultiplicativeNoDivisionOperator
+  = __ "*" __  { return init(Ast.Operator, "*"); }
+  / __ "%" __  { return init(Ast.Operator, "%"); }
+
+ExponentialOperator
+  =  __ "**" __  { return init(Ast.Operator, "**"); }
 
 NotOperator
-  =  __ "not"i __  { return new Ast.Operator("not"); }
-
+  =  _ not _ { return init(Ast.Operator, "not"); }
 
 AndOperator
-  =  __ "and"i __  { return new Ast.Operator("and"); }
+  =  __ and _ { return init(Ast.Operator, "and"); }
 
 OrOperator
-  =  __ "or"i __  { return new Ast.Operator("or"); }
-
-
-OperatorNoDivision
-  = __ "+" __  { return new Ast.Operator("+"); }
-  / __ "-" __ { return new Ast.Operator("-"); }
-  / __ "*" __  { return new Ast.Operator("*"); }
-  / __ ">" __  { return new Ast.Operator(">"); }
-  / __ ">=" __ { return new Ast.Operator(">="); }
-  / __ "<" __  { return new Ast.Operator("<"); }
-  / __ "<=" __ { return new Ast.Operator("<="); }
-  / __ "==" __ { return new Ast.Operator("=="); }
-  / __ "!=" __ { return new Ast.Operator("!="); }
-
+  =  __ or _  { return init(Ast.Operator, "or"); }
 
 Ident
   = name:ident {
-    return new Ast.Ident(name)
+    return init(Ast.Ident, name)
   }
 
 
 NamespacedIdent
   = name:namespaced_ident {
     const [ns, id] = name.split('.')
-    return new Ast.Ident(id, ns)
+    return init(Ast.Ident, id, ns)
   }
 
 
 Variable
-  = comment* '$' name:ident { return new Ast.Variable(name) }
+  = comment* '$' name:ident { return init(Ast.Variable,name) }
 
 
 NamespacedVariable
   = comment* namespace:ident '.$' name:ident {
-    return new Ast.Variable(name, namespace)
+    return init(Ast.Variable, name, namespace)
   }
+
+
+ParentSelector
+  = comment* '&' { return init(Ast.ParentSelector) }
 
 
 Color
   = comment* "#" name:name {
-    return new Ast.Color(`#${name}`)
+    return init(Ast.Color, `#${name}`)
   }
 
 
 NullLiteral
-  = null { return new Ast.NullLiteral() }
+  = null { return init(Ast.NullLiteral) }
 
 
 BooleanLiteral
-  = true { return new Ast.BooleanLiteral(true) }
-  / false  { return new Ast.BooleanLiteral(false) }
+  = true { return init(Ast.BooleanLiteral, true) }
+  / false  { return init(Ast.BooleanLiteral, false) }
 
 
 Numeric
   = comment* value:num unit:('%' / ident { return text() })? {
-    return new Ast.Numeric(value, unit)
+    return init(Ast.Numeric, value, unit)
   }
 
+
+double_quote_char
+  = (Interpolation / [^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)
+
+single_quote_char
+  = (Interpolation / [^\n\r\f\\'] / "\\" nl:eol_sequence { return ""; } / escape)
 
 StringTemplate "templated string"
-  = comment* '"' chars:(Interpolation / [^\n\r\f\\"] / "\\" nl:eol_sequence { return ""; } / escape)* '"' {
-    return Ast.StringTemplate.fromTokens(chars, '"')
+  = comment* literal:'~'? '"' chars:double_quote_char* '"' {
+    return init(Ast.StringTemplate.fromTokens(chars, literal ? undefined : '"'))
   }
-  / comment* "'" chars:(Interpolation / [^\n\r\f\\'] /  "\\" nl:eol_sequence { return ""; } / escape)* "'" {
-    return Ast.StringTemplate.fromTokens(chars, "'")
+  / comment* literal:'~'? "'" chars:single_quote_char* "'" {
+    return init(Ast.StringTemplate.fromTokens(chars, literal ? undefined : "'"))
   }
 
 
@@ -237,23 +281,19 @@ Url
 
 
 Function  "function"
-  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ params:List _ ")" {
-    // we need to re-wrap the expression if it was reduced to it's lone item
-    return new Ast.Function(name[0], params.type !== 'list'
-      ? new Ast.List([params])
-      : params
-    );
+  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ params:Expression _ ")" {
+    return init(Ast.Function, name[0], params);
   }
 
 Interpolation "interpolation"
-  = '#{' _ list:List _'}' {
-    return new Ast.Interpolation(list.nodes.length <= 1 ? list.nodes[0].remove() : list)
+  = '#{' _ list:Expression _ '}' {
+    return init(Ast.Interpolation, list)
   }
 
 
 InterpolatedIdent "interpolated identifier"
   = comment* head:(ident / prefix:$"-"? Interpolation) tail:(name / Interpolation)* {
-    return Ast.InterpolatedIdent.fromTokens([].concat(head, tail))
+    return init(Ast.InterpolatedIdent.fromTokens([].concat(head, tail)))
   }
 
 
@@ -261,21 +301,38 @@ math_function_names
   = "calc"i / "min"i / "max"i / "clamp"i
 
 math_params "list of math expressions"
-  = head:(Expression) _ tail:(Comma expr:Expression _ { return expr })* { return [head, ...tail] }
+  = head:(ExpressionWithDivision) _ tail:(Comma expr:ExpressionWithDivision _ { return expr })* {
+    return [head, ...tail]
+  }
 
 MathFunction "calc, min, max, or clamp function"
   = comment* name:math_function_names "(" _ params:(math_params) _ ")"  {
     return name.toLowerCase() === 'calc'
-      ? new Ast.Calc(params[0])
-      : new Ast.MathFunction(name.toLowerCase(), params)
+      ? init(Ast.Calc, params[0])
+      : init(Ast.MathFunction, name.toLowerCase(), params)
   }
 
+// comma separated lists not allowed in a Map b/c of parsing ambiguity
+map_property
+  = key:SlashListExpression _ colon _ value:SlashListExpression {
+    return [key, value]
+  }
+
+map_properties
+  = head:map_property tail:(_ ',' _ prop:map_property { return prop })* trailing_comma? {
+    return [head, ...tail]
+  }
+Map
+  = "(" _ properties:map_properties _ ")" {
+    return init(Ast.Map, properties)
+  }
 
 Value
   = Color
   / Numeric
   / NullLiteral
   / BooleanLiteral
+  / ParentSelector
   / StringTemplate
   / Url
   / MathFunction
@@ -284,92 +341,182 @@ Value
   / Variable
   / NamespacedIdent
   / InterpolatedIdent
+  / Map
 
 
 PrimaryExpression
   = Value
+  / comment* list:BracketedList { return list }
   / comment* "(" _ expr:Expression _ ")" { return expr }
+  / comment* "(" _ ")" { return init(Ast.List, []) }
+  / comment* "[" _ "]" { return init(Ast.List, [], undefined, true) }
+
+PrimaryExpressionWithDivision
+  = Value
+  / comment* "(" _ expr:ExpressionWithDivision _ ")" { return expr }
 
 
 UnaryExpression
-  = op:('+' / '-')? _ argument:PrimaryExpression _ {
-    return op ? new Ast.UnaryExpression(op, argument) : argument
+  = PrimaryExpression
+  / op:(UnaryOperator _) argument:PrimaryExpression  {
+    return init(Ast.UnaryExpression, op[0], argument)
+  }
+
+UnaryExpressionWithDivision
+  = PrimaryExpressionWithDivision
+  / op:(UnaryOperator _) argument:PrimaryExpression  {
+    return init(Ast.UnaryExpression, op[0], argument)
   }
 
 
 ExponentialExpression
-   = head:UnaryExpression tail:(ExponetialOperator UnaryExpression)* _ {
-    // Exponentiation is right-associative, maybe move this to AST
-    tail = [[new Ast.Operator('**'), head], ...tail].reverse();
-    [, head] = tail.shift()
-    return Ast.BinaryExpression.fromTokens(head, tail)
+   = head:UnaryExpression tail:(ExponentialOperator UnaryExpression)*  {
+    return buildExponentialExpression(head, tail)
+  }
+
+ExponentialExpressionWithDivision
+  = head:UnaryExpressionWithDivision tail:(ExponentialOperator UnaryExpressionWithDivision)*  {
+    return buildExponentialExpression(head, tail)
   }
 
 
 MultiplicativeExpression
-   = head:ExponentialExpression tail:(MultiplicativeOperator ExponentialExpression)* _ {
-    return Ast.BinaryExpression.fromTokens(head, tail)
+   = head:ExponentialExpression tail:(MultiplicativeNoDivisionOperator ExponentialExpression)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+MultiplicativeExpressionWithDivision
+   = head:ExponentialExpressionWithDivision tail:(MultiplicativeOperator ExponentialExpressionWithDivision)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
 AdditiveExpression
-  = head:MultiplicativeExpression  tail:(AdditiveOperator MultiplicativeExpression)* _ {
-    return Ast.BinaryExpression.fromTokens(head, tail)
+  = head:MultiplicativeExpression  tail:(AdditiveOperator MultiplicativeExpression)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+AdditiveExpressionWithDivision
+  = head:MultiplicativeExpressionWithDivision  tail:(AdditiveOperator MultiplicativeExpressionWithDivision)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
 RelationalExpression
-  = head:AdditiveExpression  tail:(RelationalOperator AdditiveExpression)* _ {
-    return Ast.BinaryExpression.fromTokens(head, tail)
+  = head:AdditiveExpression  tail:(RelationalOperator AdditiveExpression)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+RelationalExpressionWithDivision
+  = head:AdditiveExpressionWithDivision tail:(RelationalOperator AdditiveExpressionWithDivision)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
 EqualityExpression
-  = head:RelationalExpression  tail:(EqualityOperator RelationalExpression)* _ {
-    return Ast.BinaryExpression.fromTokens(head, tail)
+  = head:RelationalExpression tail:(EqualityOperator RelationalExpression)* {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+EqualityExpressionWithDivision
+  = head:RelationalExpressionWithDivision tail:(EqualityOperator RelationalExpressionWithDivision)*  {
+    return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
 NotExpression
-  = op:NotOperator? argument:EqualityExpression _ {
-    return op ? new Ast.UnaryExpression(op.value, argument) : argument
+  = op:(NotOperator _)? argument:EqualityExpression {
+    return op ? init(Ast.UnaryExpression, 'not', argument) : argument
   }
 
+NotExpressionWithDivision
+  = op:NotOperator? argument:EqualityExpressionWithDivision {
+    return op ? init(Ast.UnaryExpression, op.value, argument) : argument
+  }
 
 AndExpression
-  = head:NotExpression  tail:(AndOperator NotExpression)* _ {
-     return Ast.BinaryExpression.fromTokens(head, tail)
+  = head:NotExpression tail:(AndOperator NotExpression)* {
+     return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+AndExpressionWithDivision
+  = head:NotExpressionWithDivision tail:(AndOperator NotExpressionWithDivision)* _ {
+     return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
 OrExpression
-  = head:AndExpression  tail:(OrOperator AndExpression)* {
-     return Ast.BinaryExpression.fromTokens(head, tail)
+  = head:AndExpression tail:(OrOperator AndExpression)* {
+     return init(Ast.BinaryExpression.fromTokens(head, tail))
+  }
+
+OrExpressionWithDivision
+  = head:AndExpressionWithDivision tail:(OrOperator AndExpressionWithDivision)* {
+     return init(Ast.BinaryExpression.fromTokens(head, tail))
   }
 
 
-BinaryExpression
-   = OrExpression
+list_range_exclusivity
+  = __ op:($to / $through) _ { return op === 'to' }
+
+RangeExpression
+  = from:OrExpression tail:(list_range_exclusivity to:OrExpression)? {
+    return tail ? init(Ast.Range, from, tail[1], tail[0]) : from
+  }
+
+// Lists
+//
+// single item "lists" should be parsed as a value in parens and not lists
+// EXCEPT when there is a trailing non-space separator, or the list is brackets
+//
+// e.g.
+//  (1px)  -> Numeric
+//  (1px ) -> Numeric
+//  (1px,) -> List
+//  (1px/) -> List
+//  [1px]  -> List
+
+SpaceListExpression
+  = head:RangeExpression tail:(_ expr:RangeExpression { return expr })* {
+    return tail.length
+      ? init(Ast.List, [head, ...tail], ' ')
+      : head
+  }
+
+// In CSS slash sometimes binds more tightly than space, but mostly it doesn't
+// so we go with that, and in practice it prints the same either way.
+// https://github.com/sass/sass/issues/2565#issuecomment-423679828
+SlashListExpression
+  = head:SpaceListExpression _ tail:(sep:Slash expr:SpaceListExpression _ { return expr })* trailing:trailing_slash?  {
+    return tail.length || trailing
+      ? init(Ast.List, [head, ...tail], '/')
+      : head
+  }
+
+CommaListExpression
+  = head:SlashListExpression _ tail:(sep:Comma expr:SlashListExpression _  { return expr })* trailing:trailing_comma? {
+    return tail.length || trailing
+      ? init(Ast.List, [head, ...tail], ',')
+      : head
+  }
+
+ListExpression
+  = list:CommaListExpression {
+    return list
+  }
+
+BracketedList
+  = "[" _ list:ListExpression _ "]" {
+    return init(Ast.List.wrap(list, true))
+  }
 
 
 Expression
-  = OrExpression
+  = ListExpression
 
+ExpressionWithDivision
+   = OrExpressionWithDivision
 
-ListItem
-  = Value
-  / OperatorNoDivision
-  / ParenthesizedList
-
-
-List
-  = head:(ListItem) _ tail:(sep:(Comma / Slash / Space) expr:ListItem _ { return [sep, expr]})* {
-    return Ast.List.fromTokens(head, tail)
-  }
-
-
-ParenthesizedList
-  = "(" _ list:List _ ")" { return list }
 
 
 
@@ -393,10 +540,10 @@ from_source
 
 imports
   = source:string _ "import" _ specifiers:(ImportSpecifiers) _ {
-    return new Ast.Import(source, specifiers)
+    return init(Ast.Import, source, specifiers)
   }
   / source:string _ {
-    return new Ast.Import(source, [])
+    return init(Ast.Import, source, [])
   }
 
 
@@ -407,7 +554,7 @@ specifier_alias
 
 ImportNamespaceSpecifier
    = "*" _ "as" _ local:Ident {
-    return new Ast.ImportNamespaceSpecifier(local);
+    return init(Ast.ImportNamespaceSpecifier, local)
   }
 
 ImportSpecifier
@@ -416,7 +563,7 @@ ImportSpecifier
       error(`Cannot import ${imported.type === 'variable' ? 'a variable as an identifier' : 'an identifier as a variable'}.`)
     }
 
-    return new Ast.ImportNamedSpecifier(imported, local ?? imported)
+    return init(Ast.ImportNamedSpecifier, imported, local ?? imported)
   }
 
 ImportSpecifiers
@@ -459,12 +606,12 @@ class_list
 exports
   = _ "*" _ "from" _ source:string _ {
     return new Ast.Export(
-      [new Ast.ExportAllSpecifier()],
+      [init(Ast.ExportAllSpecifier)],
       source,
     );
   }
   / specifiers: ExportSpecifiers _ source:from_source? _ {
-    return new Ast.Export(
+    return init(Ast.Export,
       specifiers,
       source?.source,
     );
@@ -473,7 +620,7 @@ exports
 
 ExportSpecifier
   = local:Variable _ exported:specifier_alias? _ {
-    return new Ast.ExportSpecifier(exported || local, local)
+    return init( Ast.ExportSpecifier, exported || local, local)
   }
 
 ExportSpecifiers
@@ -488,15 +635,120 @@ ExportSpecifiers
 // Values
 
 values
-  = _ list:(List / ParenthesizedList) _ {
-    return list.nodes.length <= 1 ? list.nodes[0].remove() : list
+  = _ list:Expression _ {
+    return list
   }
 
-declaration
+
+declaration_prop
   = InterpolatedIdent
 
 
-for_condition
-  = _ variable:Variable __ "from" __ from:Expression _ exclusive:("to" / "through") _ to:Expression _ {
-    return  new Ast.ForCondition(variable, from, to, exclusive === 'to')
+declaration_value
+  = chars:any_value* {
+    return init(Ast.StringTemplate.fromTokens(chars.flat()))
   }
+
+
+
+
+for_condition "for rule"
+  = _ variable:Variable __ from _ from:Expression exclusive:(to / through) _ to:Expression _ {
+    return init(Ast.ForCondition, variable, from, to, exclusive === 'to')
+  }
+
+variables
+  = head:Variable tail:(_ Comma _ v:Variable { return v })* {
+    return [head, ...tail]
+  }
+
+each_condition
+  = _ vars:variables __ in _ expr:Expression _ {
+    return init(Ast.EachCondition, vars, expr)
+  }
+
+
+// Rules
+
+UniversalSelector
+  = comment* '*' { return init(Ast.UniversalSelector) }
+
+ElementSelector
+  = comment* name:InterpolatedIdent { return init(Ast.TypeSelector, name) }
+
+ParentTypeSelector
+  = comment* prefix:InterpolatedIdent? '&' suffix:InterpolatedIdent? {
+    return init(Ast.ParentSelector, prefix ?? undefined, suffix ?? undefined)
+  }
+
+TypeSelector "type selector"
+  = UniversalSelector
+  / ParentTypeSelector
+  / ElementSelector
+
+
+IdSelector "id selector"
+  = comment* "#" name:InterpolatedIdent { return init(Ast.IdSelector, name) }
+
+
+ClassSelector "class selector"
+  = comment* "." name:InterpolatedIdent { return init(Ast.ClassSelector, name) }
+
+
+AttributeSelector
+  = "[" _ attribute:InterpolatedIdent _ operatorAndValue:(("=" / '~=' / '|=' / '^=' / '$=' / '*=') _ (InterpolatedIdent / StringTemplate) _)? "]" {
+    return init(Ast.AttributeSelector, attribute, operatorAndValue?.[0], operatorAndValue?.[2])
+  }
+
+
+PseudoSelector
+  = ":" el:":"? name:InterpolatedIdent value:("(" _ v:declaration_value _ ")" { return v })? {
+    return init(Ast.PseudoSelector, name, !!el, value)
+  }
+
+
+CompoundSelector
+  = type:TypeSelector qualifiers:(IdSelector / ClassSelector / AttributeSelector / PseudoSelector)* {
+    return init(Ast.CompoundSelector, [type, ...qualifiers])
+  }
+  / qualifiers:(IdSelector / ClassSelector / AttributeSelector / PseudoSelector)+ {
+    return init(Ast.CompoundSelector, qualifiers)
+  }
+
+
+Combinator
+  = _ combinator:combinator { return init(Ast.Combinator, combinator) }
+  / __ { return null }
+
+
+ComplexSelector
+  = head:CompoundSelector tail:(Combinator CompoundSelector)* {
+    return tail.length
+      ? init(Ast.ComplexSelector, [head, ...tail.flat().filter(Boolean)])
+      : head
+  }
+  / head:Combinator tail:ComplexSelector? {
+    const nodes = [head]
+
+    if (!tail) error('A selector combinator must preceed a selector');
+
+    if (tail.type !=='complex-selector') nodes.push(tail)
+    else nodes.push(...tail.nodes)
+
+    return init(Ast.ComplexSelector, nodes)
+  }
+
+SelectorList
+  = head:ComplexSelector tail:("," _ s:ComplexSelector { return s })* {
+    return init(Ast.SelectorList, [head, ...tail])
+  }
+
+
+selector 'selector'
+  = SelectorList
+
+// function_declaration
+//   = comment* name:Ident"(" _ params:Expression _ ")" {
+//     return new Ast.FunctionDeclaration(name[0], Ast.List.wrap([params));
+//   }
+

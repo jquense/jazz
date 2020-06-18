@@ -5,53 +5,15 @@ import {
   Calc,
   Expression,
   Function,
-  Ident,
-  ListItem,
   MathFunction,
   Numeric,
   Operator,
   Operators,
-  StringLiteral,
   Value,
+  isStringish,
 } from './Ast';
 
 export type Term = Numeric | Calc | MathFunction | Function;
-
-export const PRECEDENCE: Record<Operators, number> = {
-  'or': 0,
-  'and': 1,
-  'not': 2,
-  '==': 3,
-  '!=': 3,
-  '<': 4,
-  '>': 4,
-  '<=': 4,
-  '>=': 4,
-  '+': 5,
-  '-': 5,
-  '*': 6,
-  '/': 6,
-  '%': 6,
-  '**': 7,
-};
-
-const equalityOperators = {
-  '==': true,
-  '!=': true,
-};
-
-const multiplicativeOperators = {
-  '*': true,
-  '/': true,
-  '%': true,
-};
-
-const isStringish = (a: ListItem): a is StringLiteral | Ident =>
-  a.type === 'string' || a.type === 'ident';
-
-// const isEquatable = (a: Value, b: Value) => {
-//   return a.type === b.type || (isStringish(a) && isStringish(b))
-// }
 
 export const isMathTerm = (term: Expression): term is Term =>
   term.type === 'numeric' ||
@@ -82,39 +44,6 @@ const assertValidMathFunction = (a: Term) => {
   if (a.type === 'function' && !a.isVar)
     throw new Error(`The function ${a} is not valid in a Math expression`);
 };
-
-// prettier
-export function shouldFlatten(parentOp: Operators, nodeOp: Operators) {
-  if (PRECEDENCE[nodeOp] !== PRECEDENCE[parentOp]) return false;
-
-  // ** is right-associative
-  // x ** y ** z --> x ** (y ** z)
-  if (parentOp === '**') return false;
-
-  // x == y == z --> (x == y) == z
-  if (parentOp in equalityOperators && nodeOp in equalityOperators)
-    return false;
-
-  // x * y % z --> (x * y) % z
-  if (
-    (nodeOp === '%' && parentOp in multiplicativeOperators) ||
-    (parentOp === '%' && nodeOp in multiplicativeOperators)
-  ) {
-    return false;
-  }
-
-  // x * y / z --> (x * y) / z
-  // x / y * z --> (x / y) * z
-  if (
-    nodeOp !== parentOp &&
-    nodeOp in multiplicativeOperators &&
-    parentOp in multiplicativeOperators
-  ) {
-    return false;
-  }
-
-  return true;
-}
 
 export function add(a: Term, b: Term, mustReduce = false) {
   if (a.type === 'numeric' && b.type === 'numeric') {
@@ -309,7 +238,8 @@ export function lte(a: Numeric, b: Numeric) {
   return new BooleanLiteral(a.value <= b.convert(a.unit).value);
 }
 
-export function eq(a: ListItem, b: ListItem) {
+export function eq(a: Value, b: Value) {
+  // repeated logic
   if (a.type !== b.type) {
     if (isStringish(a) && isStringish(b)) {
       return new BooleanLiteral(a.equalTo(b));
@@ -330,6 +260,6 @@ export function eq(a: ListItem, b: ListItem) {
   return new BooleanLiteral(a.equalTo(b as any));
 }
 
-export function neq(a: ListItem, b: ListItem) {
+export function neq(a: Value, b: Value) {
   return eq(a, b).negate();
 }

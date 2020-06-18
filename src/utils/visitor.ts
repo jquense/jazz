@@ -3,6 +3,7 @@ import postcss, { Declaration, ChildNode, AtRule } from 'postcss';
 import Parser from '../parsers';
 import { ProcessingFile } from '../types';
 import Scope from './Scope';
+import { Expression } from '../parsers/Ast';
 
 export type WalkApi = {
   skip(): void;
@@ -20,7 +21,7 @@ export type Visitor = VisitorFn | NormalVisitor;
 
 export type VisitorMap = Record<string, Visitor>;
 
-type NormalVisitorMap = Record<string, NormalVisitor[]>;
+type NormalVisitorMap = Record<Expression['type'] | string, NormalVisitor[]>;
 
 const buildError = (child: postcss.Node, e: any) => {
   e.postcssNode = child;

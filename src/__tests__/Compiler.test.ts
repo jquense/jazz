@@ -34,8 +34,14 @@ describe('Compiler', () => {
       `
         @from './colors.css' import $red;
 
+        $name: child;
+
         .foo {
           color: $red;
+
+          & > .#{$name} {
+            color: $red
+          }
         }
       `,
     );
@@ -43,6 +49,10 @@ describe('Compiler', () => {
     expect(details.result.css).toMatchCss(`
       .m_foo {
         color: red;
+      }
+
+      & > .m_child {
+        color: red
       }
     `);
   });
@@ -68,7 +78,7 @@ describe('Compiler', () => {
       foo: ['m_foo'],
     });
     expect(details.values).toEqual({
-      baz: 'blue',
+      $baz: 'blue',
     });
 
     expect(details.result.css).toMatchCss(`

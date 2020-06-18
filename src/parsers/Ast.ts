@@ -1,12 +1,14 @@
+/* eslint-disable @typescript-eslint/no-use-before-define */
 /* eslint-disable max-classes-per-file */
 
 import { channel, isValid } from 'khroma';
 
 import interleave from '../utils/interleave';
 import conversions from '../utils/unit-conversions';
-import { PRECEDENCE } from './math';
+import { IFileRange } from './parser';
 
 const tag = `@@typeof/Node`;
+const SOURCE = Symbol.for('node source');
 
 function cloneNode(obj: Node, parent?: Node) {
   // @ts-ignore
@@ -30,6 +32,8 @@ function cloneNode(obj: Node, parent?: Node) {
   return cloned;
 }
 
+let MATH_FUNCTION_CONTEXT = false;
+
 export abstract class Node<T extends string = any> {
   abstract type: T;
 
@@ -39,9 +43,17 @@ export abstract class Node<T extends string = any> {
     return inst && inst[Symbol.for(tag)] === true;
   }
 
+  [SOURCE]?: IFileRange & {
+    input: string;
+  };
+
   replaceWith(nodes: Node | Node[]) {
-    this.parent!.insertAfter(this, nodes);
-    this.parent!.removeChild(this);
+    if (this.parent) {
+      this.parent?.insertAfter(this, nodes);
+      this.parent?.removeChild(this);
+    }
+
+    return this;
   }
 
   remove() {
@@ -58,7 +70,47 @@ export abstract class Node<T extends string = any> {
   equalTo(node: Node): boolean {
     return this === node;
   }
+
+  error(msg: string) {
+    const error = new Error(msg);
+    const { start, end } = this[SOURCE] || {};
+    // @ts-ignore
+    error.location = { start, end };
+    return error;
+  }
 }
+
+export type Comma = ',';
+export type Space = ' ';
+export type Slash = '/';
+
+export type Separator = Comma | Space | Slash;
+
+export type Combinators = '>' | '+' | ' ';
+
+export const OPERATOR_PRECEDENCE: Record<Operators, number> = {
+  'or': 0,
+  'and': 1,
+  'not': 2,
+  '==': 3,
+  '!=': 3,
+  '<': 4,
+  '>': 4,
+  '<=': 4,
+  '>=': 4,
+  '+': 5,
+  '-': 5,
+  '*': 6,
+  '/': 6,
+  '%': 6,
+  '**': 7,
+};
+
+export const SEPARATOR_PRECEDENCE: Record<Separator, number> = {
+  ' ': 0,
+  '/': 10,
+  ',': 20,
+};
 
 // @ts-ignore
 Node.prototype[Symbol.for(tag)] = true;
@@ -71,6 +123,17 @@ export const isFalsey = (node: Value): node is BooleanLiteral | NullLiteral =>
 export const isTruthy = (node: Value): node is Exclude<Value, NullLiteral> =>
   !isFalsey(node);
 
+export const isStringish = (a: Expression): a is StringLiteral | Ident =>
+  a.type === 'string' || a.type === 'ident';
+
+export const isUnquoted = (a: Expression): a is StringLiteral | Ident =>
+  (a.type === 'string' && !a.quote) || a.type === 'ident';
+
+export const areEquatable = (a: Expression, b: Expression) => {
+  if (a.type !== b.type) return isStringish(a) && isStringish(b);
+  return 'equalTo' in a;
+};
+
 export type Value =
   | Color
   | Numeric
@@ -78,41 +141,37 @@ export type Value =
   | BooleanLiteral
   | StringLiteral
   | StringTemplate
+  | ParentSelector
   | Url
   | Calc
   | MathFunction
   | Function
   | Variable
   | InterpolatedIdent
-  | Ident;
+  | Ident
+  | Map
+  | List;
 
-export type Expression = Value | BinaryExpression | UnaryExpression;
-
-export type ListItem = Value | Operator | List;
+export type Expression =
+  | Value
+  | Interpolation
+  | BinaryExpression
+  | UnaryExpression
+  | Range;
 
 export type ReducedExpression =
-  | StringLiteral
-  | Numeric
-  | Color
-  | Calc
-  | Operator
-  | Ident
-  | Url;
+  | Exclude<Expression, Range | Variable | StringTemplate | List>
+  | List<ReducedExpression>;
 
-// export enum NodeKind {
-//   Ident = 'ident',
-//   Numeric = 'numeric',
-//   StringTemplate = 'string-template',
-//   StringLiteral = 'string',
-//   Url = 'url',
-//   Expression = 'expression',
-//   Block = 'block',
-//   NotKeyword = 'not-keyword',
-//   OrKeyword = 'or-keyword',
-//   Variable =
-// }
+type WalkerIterable = Iterable<[Expression, { index: number; skip(): void }]>;
 
-type WalkerIterable = Iterable<[ListItem, { index: number; skip(): void }]>;
+function stringifyContainer(container: Container, sep: string): string {
+  let result = '';
+  for (const [idx, node] of container.nodes.entries()) {
+    result += idx === 0 ? node.toString() : `${sep}${node.toString()}`;
+  }
+  return result;
+}
 
 export abstract class Container<T extends Node = Node> extends Node {
   protected _nodes: T[] = [];
@@ -120,12 +179,6 @@ export abstract class Container<T extends Node = Node> extends Node {
   private currentIndices: Record<number, number> = Object.create(null);
 
   private id = 0;
-
-  constructor(nodes?: T | readonly T[]) {
-    super();
-
-    if (nodes) this.push(...([] as T[]).concat(nodes));
-  }
 
   get nodes(): readonly T[] {
     return this._nodes;
@@ -141,6 +194,12 @@ export abstract class Container<T extends Node = Node> extends Node {
 
   get last() {
     return this.nodes[this.nodes.length - 1];
+  }
+
+  constructor(nodes?: T | readonly T[]) {
+    super();
+
+    if (nodes) this.push(...([] as T[]).concat(nodes));
   }
 
   push(...children: T[]) {
@@ -245,142 +304,50 @@ export abstract class Container<T extends Node = Node> extends Node {
     return nodes;
   }
 
-  toString() {
-    let result = '';
-
-    for (const [idx, node] of this.nodes.entries()) {
-      const last = idx > 0 ? this.nodes[idx - 1] : null;
-
-      result +=
-        last && node.type !== 'separator'
-          ? ` ${node.toString()}`
-          : node.toString();
-    }
-
-    return result;
+  toString(): string {
+    return stringifyContainer(this, '');
   }
 }
 
-export class List extends Container<ListItem> {
-  type = 'list' as const;
+// -----
+// Primitives
+// ----------------------------------------
 
-  constructor(
-    nodes: readonly ListItem[],
-    public separator?: Separator,
-    public brackets = false,
-  ) {
-    super(nodes);
+export const SINGLE = "'" as const;
+export const DOUBLE = '"' as const;
+
+export class NullLiteral extends Node {
+  type = 'null' as const;
+
+  readonly value = null;
+
+  toString() {
+    return ``;
   }
 
-  // a b, c d, f, g
-  // a/b c/d, e
-  // [a, b]
-  // [[a, b], c]
-  // [a, ' ', b, ',', 'c' ',' 'd', ' ', 'c']
-
-  /**
-   * this is super IFFY
-   * but we can infer the nesting of unparameterized lists for 3 levels by
-   * assuming consistent use of seperators
-   */
-  static fromTokens(head: ListItem, tail: Array<[Separator, ListItem]>) {
-    const first = new List([head]);
-    let current = first;
-    let parent: List | undefined;
-
-    for (const [separator, item] of tail) {
-      if (!current.separator) {
-        current.separator = separator;
-      } else if (current.separator !== separator) {
-        // console.log(
-        //   'D',
-        //   current.toString(),
-        //   '   |',
-        //   item.toString(),
-        //   '|',
-        //   separator,
-        //   '|',
-        //   parents?.[0]?.toString(),
-        //   parents.length && separator === parents[0].separator,
-        // );
-
-        if (separator === parent?.separator) {
-          current = parent;
-        } else if (first.separator === separator) {
-          const { last } = current;
-          if (last.type === 'list' && last === first) {
-            last.push(item);
-            last.separator = separator;
-          } else {
-            current = new List([last.clone()], separator);
-            last.replaceWith(current);
-          }
-        } else {
-          parent = current = new List([parent ?? current], separator);
-        }
-      }
-      current.push(item);
-    }
-
-    return parent || current;
+  equalTo(other: NullLiteral): boolean {
+    return this.value === other.value;
   }
+}
 
-  equalTo(list: List): boolean {
-    return (
-      this.separator === list.separator &&
-      this.nodes.length === list.nodes.length &&
-      this.nodes.every(
-        (item, idx) =>
-          item.type === list.nodes[idx].type &&
-          item.equalTo(list.nodes[idx] as any),
-      )
-    );
+export class BooleanLiteral extends Node {
+  type = 'boolean' as const;
+
+  constructor(public value: boolean) {
+    super();
   }
 
   toString() {
-    let result = '';
-
-    let sep: string = this.separator || ' ';
-    if (this.separator === '/') sep = ' / ';
-    if (this.separator === ',') sep += ' ';
-
-    for (const [idx, node] of this.nodes.entries()) {
-      result += this.nodeNeedsParens?.(node)
-        ? `(${node.toString()})`
-        : node.toString();
-
-      if (idx !== this.nodes.length - 1) {
-        result += sep;
-      }
-    }
-    if (this.brackets) result = `[${result}]`;
-    return result;
+    return `${this.value}`;
   }
 
-  private nodeNeedsParens(item: ListItem) {
-    if (item.type === 'list') {
-      if (item.nodes.length < 2 || item.brackets) return false;
-      return this.separator === item.separator;
-    }
-
-    if (this.separator !== ' ') return false;
-    return false;
+  negate() {
+    this.value = !this.value;
+    return this;
   }
-}
 
-export class Map extends Container<List> {
-  type = 'map' as const;
-
-  constructor(nodes: readonly ListItem[], public separator?: Separator) {
-    super(nodes);
-  }
-}
-
-export class DeclarationValue<T extends Node = ListItem> extends Container<T> {
-  type = 'declaration-value' as const;
-
-  get body() {
-    return this.nodes[0];
+  equalTo(other: BooleanLiteral): boolean {
+    return this.value === other.value;
   }
 }
 
@@ -476,67 +443,125 @@ export class Url extends Node {
   }
 }
 
-export const SINGLE = "'" as const;
-export const DOUBLE = '"' as const;
+export class Variable extends Node {
+  type = 'variable' as const;
 
-export class NullLiteral extends Node {
-  type = 'null' as const;
-
-  readonly value = null;
-
-  toString() {
-    return `null`;
-  }
-
-  equalTo(other: NullLiteral): boolean {
-    return this.value === other.value;
-  }
-}
-
-export class BooleanLiteral extends Node {
-  type = 'boolean' as const;
-
-  constructor(public value: boolean) {
+  constructor(public name: string, public namespace?: string) {
     super();
   }
 
   toString() {
-    return `${this.value}`;
+    return `${this.namespace ? `${this.namespace}.` : ''}$${this.name}`;
+  }
+}
+
+export class Ident extends Node {
+  type = 'ident' as const;
+
+  constructor(public value: string, public namespace?: string) {
+    super();
   }
 
-  negate() {
-    this.value = !this.value;
-    return this;
+  get isCustomProperty() {
+    return this.value.startsWith('--');
   }
 
-  equalTo(other: BooleanLiteral): boolean {
+  equalTo(other: StringLiteral | Ident): boolean {
     return this.value === other.value;
+  }
+
+  toString() {
+    return this.namespace ? `${this.namespace}.${this.value}` : this.value;
+  }
+}
+
+export class Interpolation extends Container<Expression> {
+  type = 'interpolation' as const;
+
+  get value() {
+    return this.first;
+  }
+
+  toString() {
+    return `#{${super.toString()}}`;
+  }
+}
+
+export class InterpolatedIdent extends Container<Expression> {
+  type = 'interpolated-ident' as const;
+
+  constructor(public quasis: string[], expressions: Array<Expression> = []) {
+    super(expressions);
+  }
+
+  static fromTokens(tokens: Array<string | Interpolation>) {
+    const strings = [];
+    const values = [];
+    let current = '';
+
+    for (const item of tokens) {
+      if (typeof item === 'string') current += item;
+      else {
+        strings.push(current);
+        values.push(item.value);
+        current = '';
+      }
+    }
+    strings.push(current);
+
+    if (
+      values.length === 1 &&
+      strings.length === 2 &&
+      strings[0] === '' &&
+      strings[1] === ''
+    ) {
+      return new Interpolation(values[0]);
+    }
+
+    if (!values.length && strings.length === 1) {
+      const str = strings[0];
+      return Color.isValidColor(str) ? new Color(str) : new Ident(str);
+    }
+
+    return !values.length && strings.length === 1
+      ? new Ident(strings[0])
+      : new InterpolatedIdent(strings, values);
+  }
+
+  get expressions() {
+    return this.nodes;
+  }
+
+  toString(): string {
+    return interleave(this.quasis, this.nodes)
+      .map((e) => e.toString())
+      .join('');
   }
 }
 
 export class StringLiteral extends Node {
   type = 'string' as const;
 
-  constructor(public value: string, public quote: '"' | "'") {
+  constructor(public value: string, public quote?: '"' | "'") {
     super();
   }
 
   equalTo(other: StringLiteral | Ident): boolean {
-    return this.value === (other.type === 'ident' ? other.name : other.value);
+    return this.value === other.value;
   }
 
   toString() {
-    return `${this.quote}${this.value}${this.quote}`;
+    return this.quote ? `${this.quote}${this.value}${this.quote}` : this.value;
   }
 }
 
-export class StringTemplate extends Container<ListItem> {
+export class StringTemplate extends Container<Expression> {
   type = 'string-template' as const;
 
   constructor(
     public quasis: string[],
-    expressions: ListItem[] = [],
-    public quote: '"' | "'",
+    expressions: Expression[] = [],
+    public quote?: '"' | "'",
   ) {
     super(expressions);
   }
@@ -545,7 +570,7 @@ export class StringTemplate extends Container<ListItem> {
     return this.nodes;
   }
 
-  static fromTokens(parts: Array<string | Interpolation>, quote: '"' | "'") {
+  static fromTokens(parts: Array<string | Interpolation>, quote?: '"' | "'") {
     const strings = [];
     const values = [];
     let current = '';
@@ -571,9 +596,217 @@ export class StringTemplate extends Container<ListItem> {
       .map((e) => e.toString())
       .join('');
 
-    return `${this.quote}${inner}${this.quote}`;
+    return this.quote ? `${this.quote}${inner}${this.quote}` : inner;
   }
 }
+
+// -----
+// Lists
+// ----------------------------------------
+
+const listItemNeedsParens = (item: Expression, sep: Separator) => {
+  if (item.type === 'list') {
+    if (item.nodes.length < 2 || item.brackets) return false;
+    return (
+      SEPARATOR_PRECEDENCE[sep] <= SEPARATOR_PRECEDENCE[item.separator || ' ']
+    );
+  }
+  return false;
+};
+
+export function stringifyList(
+  container: Container<Expression>,
+  separator?: Separator,
+) {
+  let result = '';
+
+  let sep: string = separator || ' ';
+  if (separator === '/') sep = ' / ';
+  if (separator === ',') sep += ' ';
+
+  for (const [idx, node] of container.nodes.entries()) {
+    result += listItemNeedsParens(node, separator ?? ' ')
+      ? `(${node.toString()})`
+      : node.toString();
+
+    if (idx !== container.nodes.length - 1) {
+      result += sep;
+    }
+  }
+
+  return result;
+}
+
+export class List<T extends Expression = Expression> extends Container<T> {
+  type = 'list' as const;
+
+  *[Symbol.iterator]() {
+    for (const [child] of this.children()) yield child;
+  }
+
+  constructor(
+    nodes: readonly T[],
+    public separator?: Separator,
+    public brackets = false,
+  ) {
+    super(nodes);
+  }
+
+  static wrap(expr: Expression, brackets = false) {
+    if (expr.type === 'list') {
+      expr.brackets = brackets;
+      return expr;
+    }
+    return new List([expr], undefined, brackets);
+  }
+
+  static unwrap(expr: Expression) {
+    if (expr.type !== 'list') return expr;
+
+    const { first } = expr;
+    if (expr.nodes.length !== 1 || expr.brackets) {
+      return expr;
+    }
+
+    expr.replaceWith(first.remove());
+    return first;
+  }
+
+  equalTo(list: List): boolean {
+    return (
+      this.separator === list.separator &&
+      this.brackets === list.brackets &&
+      this.nodes.length === list.nodes.length &&
+      this.nodes.every(
+        (item, idx) =>
+          areEquatable(item, list.nodes[idx]) &&
+          item.equalTo(list.nodes[idx] as any),
+      )
+    );
+  }
+
+  unwrap() {
+    return List.unwrap(this);
+  }
+
+  toString() {
+    let result = stringifyList(this, this.separator);
+
+    if (this.brackets) result = `[${result}]`;
+    return result;
+  }
+}
+
+export class Map<
+  K extends Expression = Expression,
+  V extends Expression = Expression
+> extends Container<List<K | V>> {
+  type = 'map' as const;
+
+  *[Symbol.iterator]() {
+    for (const [child] of this.children()) yield child;
+  }
+
+  constructor(properties: readonly [K, V][]) {
+    super(properties.map((pair) => new List(pair, ' ')));
+  }
+
+  toString() {
+    return `(${this.nodes.map((n) => `${n.first}: ${n.last}`).join(',')})`;
+  }
+
+  equalTo(other: Map): boolean {
+    return (
+      this.nodes.length === other.nodes.length &&
+      this.nodes.every((item, idx) => item.equalTo(other.nodes[idx] as any))
+    );
+  }
+}
+
+// -----
+// Functions
+// ----------------------------------------
+
+export abstract class BaseFunction extends Container<Expression> {
+  constructor(public name: Ident, args: Expression | Expression[]) {
+    super(args);
+  }
+
+  get isVar() {
+    return (
+      this.name.toString() === 'var' &&
+      this.nodes[0].type === 'ident' &&
+      this.nodes[0].isCustomProperty
+    );
+  }
+
+  toString(): string {
+    return `${this.name}(${stringifyList(this, ',')})`;
+  }
+}
+
+export class Function extends BaseFunction {
+  type = 'function' as const;
+
+  constructor(public name: Ident, args: Expression) {
+    // unwrap nested calcs
+    // ??? needed
+    super(
+      name,
+      args.type === 'list' && (args.separator === ',' || !args.separator)
+        ? (args.nodes as any)
+        : args,
+    );
+  }
+}
+
+export class MathFunction extends BaseFunction {
+  type = 'math-function' as const;
+
+  constructor(name: 'clamp' | 'min' | 'max', params: Expression[]) {
+    // unwrap nested calcs
+    // ??? needed
+    super(
+      new Ident(name),
+      params?.map((p) => (p.type === 'calc' ? p.expression : p)),
+    );
+  }
+
+  static withContext(fn: () => any) {
+    try {
+      MATH_FUNCTION_CONTEXT = true;
+      return fn();
+    } finally {
+      MATH_FUNCTION_CONTEXT = false;
+    }
+  }
+}
+
+export class Calc extends Container<Expression> {
+  type = 'calc' as const;
+
+  get expression() {
+    return this.nodes[0];
+  }
+
+  set expression(expr: Expression) {
+    this.nodes[0].replaceWith(expr);
+  }
+
+  toString(): string {
+    if (MATH_FUNCTION_CONTEXT) {
+      return `(${this.expression.toString()})`;
+    }
+
+    return MathFunction.withContext(
+      () => `calc(${this.expression.toString()})`,
+    );
+  }
+}
+
+// -----
+// Expressions
+// ----------------------------------------
 
 export type ArthimeticOperators = '+' | '-' | '*' | '/' | '%' | '**';
 
@@ -596,7 +829,7 @@ export class Operator extends Node {
   }
 
   get precedence() {
-    return PRECEDENCE[this.value];
+    return OPERATOR_PRECEDENCE[this.value];
   }
 
   equalTo(other: StringLiteral | Ident | Operator): boolean {
@@ -605,213 +838,6 @@ export class Operator extends Node {
 
   toString() {
     return `${this.value}`;
-  }
-}
-
-export type Comma = ',';
-export type Space = ' ';
-export type Slash = '/';
-
-export type Separator = Comma | Space | Slash;
-
-export class Variable extends Node {
-  type = 'variable' as const;
-
-  constructor(public name: string, public namespace?: string) {
-    super();
-  }
-
-  toString() {
-    return `${this.namespace ? `${this.namespace}.` : ''}$${this.name}`;
-  }
-}
-
-export class Ident extends Node {
-  type = 'ident' as const;
-
-  constructor(public name: string, public namespace?: string) {
-    super();
-  }
-
-  get isCustomProperty() {
-    return this.name.startsWith('--');
-  }
-
-  equalTo(other: StringLiteral | Ident): boolean {
-    return this.name === (other.type === 'ident' ? other.name : other.value);
-  }
-
-  toString() {
-    return this.namespace ? `${this.namespace}.${this.name}` : this.name;
-  }
-}
-
-export class Function extends Container<ListItem> {
-  type = 'function' as const;
-
-  separator: Separator | undefined;
-
-  constructor(public name: Ident, params: List) {
-    super(params.nodes);
-    this.separator = params.separator;
-  }
-
-  separateArgumentsBy(sep: Separator) {
-    const current = this.separator;
-
-    this.separator = sep;
-
-    if (current === sep) return;
-    if (!current && this.nodes.length <= 1) return;
-
-    this._nodes = [];
-    this.push(new List(this.nodes, current));
-  }
-
-  get isVar() {
-    return (
-      this.name.toString() === 'var' &&
-      this.nodes[0].type === 'ident' &&
-      this.nodes[0].isCustomProperty
-    );
-  }
-
-  toString() {
-    return `${this.name}(${List.prototype.toString.call(this)})`;
-  }
-
-  // split(sep: ' ' | ',' | '/' = ','): Expression[] {
-  //   const result = [] as Expression[];
-  //   let current = new Expression([]);
-
-  //   for (const [node] of this.children()) {
-  //     if (node.type === 'separator' && node.value === sep) {
-  //       result.push(current);
-  //       current = new Expression([]);
-  //     } else {
-  //       current.push(node);
-  //     }
-  //   }
-  //   result.push(current);
-  //   return result;
-  // }
-}
-
-export class MathFunction extends Container<Expression> {
-  type = 'math-function' as const;
-
-  readonly separator: Separator | undefined = ',';
-
-  constructor(public name: 'clamp' | 'min' | 'max', params: Expression[]) {
-    // unwrap nested calcs
-    super(params?.map((p) => (p.type === 'calc' ? p.expression : p)));
-  }
-
-  toString(): string {
-    return `${this.name}(${List.prototype.toString.call(this)})`;
-  }
-}
-
-export class Calc extends Container<Expression> {
-  type = 'calc' as const;
-
-  constructor(expression: Expression) {
-    super([expression]);
-  }
-
-  get expression() {
-    return this.nodes[0];
-  }
-
-  set expression(expr: Expression) {
-    this.nodes[0].replaceWith(expr);
-  }
-
-  toString(): string {
-    return `calc(${this.expression.toString()})`;
-  }
-}
-
-export class Interpolation extends Container<ListItem> {
-  type = 'interpolation' as const;
-
-  constructor(public value: ListItem) {
-    super(value);
-  }
-
-  toString() {
-    return `#{${super.toString()}}`;
-  }
-}
-
-export const PARENS = ['(', ')'] as const;
-export const SQUARE = ['[', ']'] as const;
-export const CURLY = ['{', '}'] as const;
-
-// export class Block extends Container {
-//   type = 'block' as const;
-
-//   constructor(
-//     nodes: Expression | BinaryExpression,
-//     public brackets: typeof CURLY | typeof SQUARE | typeof PARENS = PARENS,
-//   ) {
-//     super(nodes);
-//   }
-
-//   toString() {
-//     return `${this.brackets[0]}${super.toString()}${this.brackets[1]}`;
-//   }
-// }
-
-export class InterpolatedIdent extends Container<ListItem> {
-  type = 'interpolated-ident' as const;
-
-  constructor(public quasis: string[], expressions: Array<ListItem> = []) {
-    super(expressions);
-  }
-
-  static fromTokens(tokens: Array<string | Interpolation>) {
-    const strings = [];
-    const values = [];
-    let current = '';
-
-    for (const item of tokens) {
-      if (typeof item === 'string') current += item;
-      else {
-        strings.push(current);
-        values.push(item.value);
-        current = '';
-      }
-    }
-    strings.push(current);
-
-    if (
-      values.length === 1 &&
-      strings.length === 2 &&
-      strings[0] === '' &&
-      strings[1] === ''
-    ) {
-      return values[0];
-    }
-
-    if (!values.length && strings.length === 1) {
-      const str = strings[0];
-      return Color.isValidColor(str) ? new Color(str) : new Ident(str);
-    }
-
-    return !values.length && strings.length === 1
-      ? new Ident(strings[0])
-      : new InterpolatedIdent(strings, values);
-  }
-
-  get expressions() {
-    return this.nodes;
-  }
-
-  toString(): string {
-    return interleave(this.quasis, this.nodes)
-      .map((e) => e.toString())
-      .join('');
   }
 }
 
@@ -894,9 +920,7 @@ export class BinaryExpression extends Container {
   static fromTokens(head: Expression, tail: Array<[Operator, Expression]>) {
     let result = head;
 
-    for (let [op, right] of tail) {
-      if (right.type === 'calc') right = right.nodes[0] as BinaryExpression;
-
+    for (const [op, right] of tail) {
       result =
         op.value === '**'
           ? new BinaryExpression(right, op, result)
@@ -905,6 +929,60 @@ export class BinaryExpression extends Container {
     return result;
   }
 }
+
+export class Range extends Container<Expression> {
+  type = 'range' as const;
+
+  constructor(from: Expression, to: Expression, public exclusive = false) {
+    super([from, to]);
+  }
+
+  get from() {
+    return this.first;
+  }
+
+  set from(expr: Expression) {
+    this.nodes[0].replaceWith(expr);
+  }
+
+  get to() {
+    return this.last;
+  }
+
+  set to(expr: Expression) {
+    this.nodes[1].replaceWith(expr);
+  }
+
+  toList(): List {
+    const { from, to, exclusive } = this;
+    if (from.type !== 'numeric') throw new Error(`${from} is not numeric`);
+    if (to.type !== 'numeric') throw new Error(`${to} is not numeric`);
+
+    if (!Numeric.compatible(from, to)) {
+      throw new Error(`${from.unit} is not compatible with ${to.unit}`);
+    }
+
+    const end = exclusive ? to.value : to.value + 1;
+    const start = from.value;
+    const mult = end < start ? -1 : 1;
+    return new List(
+      Array.from(
+        { length: Math.abs(end - start) },
+        (_, i) => new Numeric(start + i * mult),
+      ),
+      ' ',
+    );
+  }
+
+  toString() {
+    const { from, to, exclusive } = this;
+    return `${from} ${exclusive ? 'to' : 'through'} ${to}`;
+  }
+}
+
+// -----
+// Modules
+// ----------------------------------------
 
 export type ClassName = {
   type: 'class';
@@ -977,6 +1055,10 @@ export class Export extends Container<ExportSpecifier | ExportAllSpecifier> {
   }
 }
 
+// -----
+// Control Flow
+// ----------------------------------------
+
 export class ForCondition extends Container<Expression> {
   type = 'for-condition' as const;
 
@@ -1003,3 +1085,337 @@ export class ForCondition extends Container<Expression> {
   //   } ${this.to} `;
   // }
 }
+
+export class EachCondition extends Container<Expression> {
+  type = 'each-condition' as const;
+
+  readonly variables: Variable[];
+
+  constructor(variables: Variable | Variable[], expr: Expression) {
+    super(expr);
+
+    this.variables = ([] as Variable[]).concat(variables);
+  }
+
+  toString(): string {
+    return `${this.variables.join(', ')} in ${this.first}`;
+  }
+}
+
+export class DeclarationValue<T extends Node = Expression> extends Container<
+  T
+> {
+  type = 'declaration-value' as const;
+
+  get body() {
+    return this.first;
+  }
+}
+
+// -----
+// Selectors
+// ----------------------------------------
+
+type AnyIdent = InterpolatedIdent | Ident | Interpolation;
+type AnyString = StringLiteral | StringTemplate;
+
+export abstract class BaseSimpleSelector<
+  T extends AnyIdent = AnyIdent
+> extends Container<T> {
+  constructor(public readonly prefix: string, name: AnyIdent) {
+    super(name as T);
+  }
+
+  get name() {
+    return this.first;
+  }
+
+  set name(name: AnyIdent) {
+    this.first.replaceWith(name);
+  }
+
+  toString() {
+    return `${this.prefix}${this.name}`;
+  }
+}
+
+export class TypeSelector extends BaseSimpleSelector {
+  type = 'type-selector' as const;
+
+  constructor(name: AnyIdent) {
+    super('', name);
+  }
+}
+
+export class ClassSelector extends BaseSimpleSelector {
+  type = 'class-selector' as const;
+
+  constructor(name: AnyIdent) {
+    super('.', name);
+  }
+}
+
+export class IdSelector extends BaseSimpleSelector {
+  type = 'id-selector' as const;
+
+  constructor(name: AnyIdent) {
+    super('#', name);
+  }
+}
+
+export class UniversalSelector extends Node {
+  type = 'universal-selector' as const;
+
+  toString() {
+    return '*';
+  }
+}
+
+export class ParentSelector extends Container<AnyIdent> {
+  type = 'parent-selector' as const;
+
+  constructor(prefix?: AnyIdent, suffix?: AnyIdent) {
+    super([prefix, suffix].filter(Boolean) as any);
+  }
+
+  get prefix() {
+    return this.first;
+  }
+
+  get suffix() {
+    return this.last;
+  }
+
+  static merge(compound: CompoundSelector, nodes: ComplexSelectorNode[]) {
+    const [parent, ...rest] = compound.nodes;
+    if (parent.type !== 'parent-selector') {
+      throw compound.error('oops');
+    }
+
+    let nextNodes = nodes;
+
+    if (parent.suffix) {
+      nextNodes = [...nodes];
+      const last = nextNodes.pop()!;
+
+      if (last.type !== 'compound-selector') {
+        throw parent.error(
+          `Parent ${last.parent} is incompatible with this selector.`,
+        );
+      }
+
+      const suffix = parent.suffix as Ident;
+      const simple = last.last;
+
+      if (
+        simple.type === 'id-selector' ||
+        simple.type === 'class-selector' ||
+        simple.type === 'type-selector' ||
+        (simple.type === 'pseudo-selector' && !simple.params)
+      ) {
+        simple.first.replaceWith(new Ident(`${simple.name}${suffix}`));
+
+        nextNodes.push(new CompoundSelector([...last.nodes, ...rest]));
+      } else {
+        throw parent.error('Invalid suffix');
+      }
+    }
+
+    if (parent.prefix) {
+      nextNodes = [...nodes];
+
+      const first = nextNodes[0];
+      if (first.type !== 'compound-selector') {
+        throw parent.error(
+          `Parent ${first.parent} is incompatible with this selector.`,
+        );
+      }
+
+      const prefix = parent.prefix as Ident;
+      const simple = first.first;
+
+      if (simple.type === 'type-selector') {
+        simple.first.replaceWith(new Ident(`${prefix}${simple.name}`));
+      } else {
+        throw parent.error('Invalid prefix');
+      }
+    }
+
+    return nextNodes;
+  }
+
+  toString() {
+    return `${this.prefix ?? ''}&${this.suffix ?? ''}`;
+  }
+}
+
+export class AttributeSelector extends Container<AnyString | AnyIdent> {
+  type = 'attribute-selector' as const;
+
+  constructor(
+    attribute: AnyIdent,
+    public operator?: '=' | '~=' | '|=' | '^=' | '$=' | '*=',
+    value?: AnyString | AnyIdent,
+  ) {
+    super(value ? [attribute, value] : attribute);
+  }
+
+  get attribute() {
+    return this.first;
+  }
+
+  get value() {
+    return this.nodes.length === 2 ? this.last : undefined;
+  }
+
+  toString() {
+    return `[${
+      this.value
+        ? `${this.attribute}${this.operator!}${this.value}`
+        : this.attribute.toString()
+    }]`;
+  }
+}
+
+export class PseudoSelector extends Container<
+  InterpolatedIdent | Ident | AnyString | SelectorList
+> {
+  type = 'pseudo-selector' as const;
+
+  constructor(
+    name: InterpolatedIdent | Ident,
+    public isElement = false,
+    params?: AnyString | SelectorList,
+  ) {
+    super(params ? [name, params] : [name]);
+  }
+
+  get name(): InterpolatedIdent | Ident {
+    return this.first as any;
+  }
+
+  get params(): AnyString | SelectorList | undefined {
+    return this.nodes.length > 1 ? (this.last as any) : undefined;
+  }
+
+  set params(params: AnyString | SelectorList | undefined) {
+    if (this.nodes.length === 1) {
+      if (!params) this.last.remove();
+      else this.last.replaceWith(params);
+    } else if (params) this.push(params);
+  }
+
+  get selector() {
+    return this.params?.type === 'selector-list' ? this.params : null;
+  }
+
+  asSelector(selector: SelectorList) {
+    const next = this.clone();
+    selector[SOURCE] = selector[SOURCE] ?? this.params![SOURCE];
+    next.params = selector;
+    return next;
+  }
+
+  toString() {
+    const name = `${this.isElement ? '::' : ':'}${this.name}`;
+
+    return this.params ? `${name}(${this.params})` : name;
+  }
+}
+
+export type SimpleSelector =
+  | ParentSelector
+  | UniversalSelector
+  | TypeSelector
+  | IdSelector
+  | ClassSelector
+  | AttributeSelector
+  | PseudoSelector;
+
+export class CompoundSelector extends Container<SimpleSelector> {
+  type = 'compound-selector' as const;
+
+  hasParentSelectors(): boolean {
+    return this.nodes.some(
+      (n) =>
+        n.type === 'parent-selector' ||
+        (n.type === 'pseudo-selector' && n.selector?.hasParentSelectors()),
+    );
+  }
+}
+
+export class Combinator extends Node {
+  type = 'combinator' as const;
+
+  constructor(public value: Combinators) {
+    super();
+  }
+
+  toString() {
+    return this.value;
+  }
+}
+
+export type ComplexSelectorNode = CompoundSelector | Combinator;
+
+export class ComplexSelector extends Container<ComplexSelectorNode> {
+  type = 'complex-selector' as const;
+
+  hasParentSelectors() {
+    return this.nodes.some(
+      (n) => n.type === 'compound-selector' && n.hasParentSelectors(),
+    );
+  }
+
+  toString(): string {
+    let result = '';
+
+    for (const [idx, item] of this.nodes.entries()) {
+      const prev = this.nodes[idx - 1];
+
+      if (item.type === 'combinator') {
+        result += item.value === ' ' ? ' ' : ` ${item} `;
+      } else if (prev && prev.type !== 'combinator') {
+        result += ` ${item.toString()}`;
+      } else {
+        result += item.toString();
+      }
+    }
+    // console.log(this.nodes, result);
+    return result;
+  }
+}
+
+export class SelectorList extends Container<
+  ComplexSelector | CompoundSelector
+> {
+  type = 'selector-list' as const;
+
+  *[Symbol.iterator]() {
+    for (const [child] of this.children()) yield child;
+  }
+
+  hasParentSelectors() {
+    return this.nodes.some((n) => n.hasParentSelectors());
+  }
+
+  // private resolveCompoundParentSelectors(compound: CompoundSelector, parentList: SelectorList) {
+  //   // if (!compound.hasParentSelectors()) return false
+
+  //   const next = compound.nodes.map(simple => {
+  //     if (simple.type ===)
+  //   })
+  // }
+
+  toString(): string {
+    return stringifyContainer(this, ', ');
+  }
+}
+
+// export class FunctionDeclaration extends Base<T> {
+//   type = 'function-declaration' as const;
+
+//   get body() {
+//     return this.first;
+//   }
+// }

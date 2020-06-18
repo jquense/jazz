@@ -6,7 +6,8 @@ describe('parser: exports', () => {
 
   beforeEach(() => {
     const parser = new Parser();
-    parse = (input: string) => parser.parse(input, { startRule: 'exports' });
+    parse = (input: string) =>
+      parser.parse(input, { startRule: 'exports', source: false });
   });
 
   // it('should handle bare import', () => {

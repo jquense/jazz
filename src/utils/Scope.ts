@@ -7,7 +7,7 @@ export type VariableMember = {
 
 export type FunctionMember = {
   source?: string;
-  fn: (...args: Ast.ListItem[]) => Ast.ReducedExpression;
+  fn: (...args: Ast.Expression[]) => Ast.ReducedExpression;
 };
 
 export type Member = VariableMember | FunctionMember;
@@ -18,6 +18,8 @@ export default class Scope {
   readonly funcs: Record<string, FunctionMember> = Object.create(null);
 
   parent: Scope | null = null;
+
+  currentRule: Ast.SelectorList | null = null;
 
   constructor(opts?: {
     variables?: Record<string, VariableMember>;
@@ -55,6 +57,8 @@ export default class Scope {
 
   get(ident: Ast.Variable): VariableMember;
 
+  get(ident: Ast.Ident | Ast.Variable): FunctionMember | VariableMember;
+
   get(ident: Ast.Ident | Ast.Variable) {
     const cache = ident.type === 'variable' ? this.variables : this.funcs;
 
@@ -70,6 +74,16 @@ export default class Scope {
   set(
     ident: Ast.Ident,
     funcOrMember: Function | FunctionMember,
+    source?: string,
+  ): boolean;
+
+  set(
+    ident: Ast.Ident | Ast.Variable,
+    nodeOrFuncOrMember:
+      | Ast.ReducedExpression
+      | VariableMember
+      | FunctionMember
+      | Function,
     source?: string,
   ): boolean;
 

@@ -12,7 +12,8 @@ describe('parser: imports', () => {
 
   beforeEach(() => {
     const parser = new Parser();
-    parse = (input: string) => parser.parse(input, { startRule: 'imports' });
+    parse = (input: string) =>
+      parser.parse(input, { startRule: 'imports', source: false });
   });
 
   it('should handle bare import', () => {
