@@ -1,18 +1,37 @@
+import diff from 'jest-diff';
 import prettier from 'prettier';
 
 expect.extend({
-  toMatchCss(received, argument) {
-    if (
-      prettier.format(received, { parser: 'scss' }) ===
-      prettier.format(argument, { parser: 'scss' })
-    ) {
+  toMatchCss(received, expected) {
+    received = prettier.format(received, { parser: 'scss' });
+    expected = prettier.format(expected, { parser: 'scss' });
+
+    if (received === expected) {
       return {
-        message: () => `expected ${received} not to match CSS ${argument}`,
+        message: () =>
+          `${this.utils.matcherHint('toMatchCss', undefined, undefined, {
+            isNot: this.isNot,
+            promise: this.promise,
+          })}\n\n` +
+          `Expected: not ${this.utils.printExpected(expected)}\n` +
+          `Received: ${this.utils.printReceived(received)}`,
         pass: true,
       };
     }
     return {
-      message: () => `expected ${received} to match CSS ${argument}`,
+      message: () => {
+        const diffString = diff(expected, received, { expand: this.expand });
+
+        return `${this.utils.matcherHint('toMatchCss', undefined, undefined, {
+          isNot: this.isNot,
+          promise: this.promise,
+        })}\n\n${
+          diffString && diffString.includes('- Expect')
+            ? `Difference:\n\n${diffString}`
+            : `Expected: ${this.utils.printExpected(expected)}\n` +
+              `Received: ${this.utils.printReceived(received)}`
+        }`;
+      },
       pass: false,
     };
   },

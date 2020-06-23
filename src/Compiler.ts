@@ -1,5 +1,4 @@
 import Processor from '@modular-css/processor';
-import mapValues from 'lodash/mapValues';
 import postcss from 'postcss';
 
 import { EXPORTS } from './utils/Symbols';
@@ -19,7 +18,6 @@ class Compiler extends Processor {
     this._process = postcss([
       require('./plugins/at-from').default,
       require('./plugins/value-processing').default,
-      // require('./plugins/variable-replace').default,
       require('@modular-css/processor/plugins/scoping.js'),
       require('@modular-css/processor/plugins/externals.js'),
       require('@modular-css/processor/plugins/composition.js'),
@@ -34,10 +32,13 @@ class Compiler extends Processor {
 
   async string(file: string, text: string) {
     const { details } = await super.string(file, text);
-
+    const values = {} as any;
+    Array.from(details[EXPORTS].members.entries(), ([key, { node }]) => {
+      if (node) values[key] = node.toString();
+    });
     // console.log(details);
     return {
-      values: mapValues(details[EXPORTS].variables, (v) => v.node.toString()),
+      values,
       classes: details.exports,
       result: details.result,
     };

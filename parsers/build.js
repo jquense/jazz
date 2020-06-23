@@ -21,6 +21,8 @@ const generate = async () => {
         'declaration_value',
         'for_condition',
         'each_condition',
+        'callable_declaration',
+        'call_expression',
         'selector',
 
         // for tests
@@ -30,7 +32,7 @@ const generate = async () => {
         'ExpressionWithDivision',
         'ListExpression',
         'Numeric',
-        'MathFunction',
+        'MathCallExpression',
         'Function',
         'Url',
       ],

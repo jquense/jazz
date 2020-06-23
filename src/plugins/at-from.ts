@@ -32,6 +32,7 @@ export function transformAtFrom(
   for (const specifier of specifiers) {
     if (specifier.type === 'namespace' && exports) {
       scope.from(exports, specifier.local.value);
+      // console.log(scope.members, exports, specifier.local.value);
     }
     if (specifier.type === 'named') {
       const other = exports.get(specifier.imported);
@@ -42,7 +43,7 @@ export function transformAtFrom(
         });
       }
 
-      scope.set(specifier.local, other, otherFile);
+      scope.set(specifier.local, { ...other, source: otherFile });
     }
   }
   // console.log('my', file.scope);

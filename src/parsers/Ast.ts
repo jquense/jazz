@@ -2,6 +2,7 @@
 /* eslint-disable max-classes-per-file */
 
 import { channel, isValid } from 'khroma';
+import { ChildNode } from 'postcss';
 
 import interleave from '../utils/interleave';
 import conversions from '../utils/unit-conversions';
@@ -47,20 +48,6 @@ export abstract class Node<T extends string = any> {
     input: string;
   };
 
-  replaceWith(nodes: Node | Node[]) {
-    if (this.parent) {
-      this.parent?.insertAfter(this, nodes);
-      this.parent?.removeChild(this);
-    }
-
-    return this;
-  }
-
-  remove() {
-    this.parent?.removeChild(this);
-    return this;
-  }
-
   clone(): this {
     const cloned = cloneNode(this);
 
@@ -89,9 +76,9 @@ export type Separator = Comma | Space | Slash;
 export type Combinators = '>' | '+' | ' ';
 
 export const OPERATOR_PRECEDENCE: Record<Operators, number> = {
-  'or': 0,
-  'and': 1,
-  'not': 2,
+  or: 0,
+  and: 1,
+  not: 2,
   '==': 3,
   '!=': 3,
   '<': 4,
@@ -141,11 +128,11 @@ export type Value =
   | BooleanLiteral
   | StringLiteral
   | StringTemplate
-  | ParentSelector
+  | ParentSelectorReference
   | Url
   | Calc
-  | MathFunction
-  | Function
+  | MathCallExpression
+  | CallExpression
   | Variable
   | InterpolatedIdent
   | Ident
@@ -159,11 +146,13 @@ export type Expression =
   | UnaryExpression
   | Range;
 
+export type Block = EachCondition;
+
+export type Nodes = Expression | Block | Selector;
+
 export type ReducedExpression =
   | Exclude<Expression, Range | Variable | StringTemplate | List>
   | List<ReducedExpression>;
-
-type WalkerIterable = Iterable<[Expression, { index: number; skip(): void }]>;
 
 function stringifyContainer(container: Container, sep: string): string {
   let result = '';
@@ -174,19 +163,7 @@ function stringifyContainer(container: Container, sep: string): string {
 }
 
 export abstract class Container<T extends Node = Node> extends Node {
-  protected _nodes: T[] = [];
-
-  private currentIndices: Record<number, number> = Object.create(null);
-
-  private id = 0;
-
-  get nodes(): readonly T[] {
-    return this._nodes;
-  }
-
-  set nodes(nodes: readonly T[]) {
-    this._nodes = this.normalize(nodes as T[]);
-  }
+  nodes: T[] = [];
 
   get first() {
     return this.nodes[0];
@@ -199,109 +176,7 @@ export abstract class Container<T extends Node = Node> extends Node {
   constructor(nodes?: T | readonly T[]) {
     super();
 
-    if (nodes) this.push(...([] as T[]).concat(nodes));
-  }
-
-  push(...children: T[]) {
-    for (const child of children) {
-      if (child == null) continue;
-      child.parent = this;
-
-      this._nodes.push(child);
-    }
-
-    return this;
-  }
-
-  *children(): Iterable<[T, number]> {
-    if (!this.nodes) {
-      return;
-    }
-
-    const id = ++this.id;
-
-    this.currentIndices[id] = 0;
-
-    let index: number;
-
-    try {
-      while (this.currentIndices[id] < this.nodes.length) {
-        index = this.currentIndices[id];
-
-        yield [this.nodes[index], index];
-
-        this.currentIndices[id]++;
-      }
-    } finally {
-      delete this.currentIndices[id];
-    }
-  }
-
-  *ancestors(): WalkerIterable {
-    for (const [child, index] of this.children()) {
-      let skipped = false;
-      yield [
-        child as any,
-        {
-          index,
-          skip() {
-            skipped = true;
-          },
-        },
-      ];
-      const next = !skipped && (child as any).ancestors?.();
-      // console.log('i:', next);
-      if (next) yield* next;
-    }
-  }
-
-  append(...children: T[]) {
-    for (const child of children) {
-      const nodes = this.normalize(child);
-      for (const node of nodes) this._nodes.push(node);
-    }
-    return this;
-  }
-
-  insertAfter(node: T, itemsToAdd: T | T[]) {
-    const current = this.nodes.indexOf(node);
-
-    const nodes = this.normalize(itemsToAdd).reverse();
-    for (const next of nodes) {
-      this._nodes.splice(current + 1, 0, next);
-    }
-
-    for (const [id, index] of Object.entries(this.currentIndices)) {
-      if (current < index) {
-        this.currentIndices[id as any] = index + nodes.length;
-      }
-    }
-
-    return this;
-  }
-
-  removeChild(child: T) {
-    const idx = this.nodes.indexOf(child);
-    child.parent = null;
-    this._nodes.splice(idx, 1);
-
-    for (const [id, index] of Object.entries(this.currentIndices)) {
-      if (index >= idx) {
-        this.currentIndices[id as any] = index - 1;
-      }
-    }
-
-    return this;
-  }
-
-  private normalize(nodes: T | T[]) {
-    if (!Array.isArray(nodes)) nodes = [nodes];
-    for (const node of nodes) {
-      if (node == null) continue;
-      if (node.parent) node.parent.removeChild(node);
-      node.parent = this;
-    }
-    return nodes;
+    if (nodes) this.nodes = ([] as T[]).concat(nodes);
   }
 
   toString(): string {
@@ -453,7 +328,31 @@ export class Variable extends Node {
   toString() {
     return `${this.namespace ? `${this.namespace}.` : ''}$${this.name}`;
   }
+
+  withNamespace(namespace: string) {
+    return new Variable(this.name, namespace);
+  }
 }
+
+export class ParentSelectorReference extends Node {
+  type = 'parent-selector-reference' as const;
+
+  toString() {
+    return '&';
+  }
+}
+
+// export class VariableDeclarator extends Node {
+//   type = 'variable-declarator' as const;
+
+//   constructor(public name: string) {
+//     super();
+//   }
+
+//   toString() {
+//     return `${this.name}`;
+//   }
+// }
 
 export class Ident extends Node {
   type = 'ident' as const;
@@ -472,6 +371,10 @@ export class Ident extends Node {
 
   toString() {
     return this.namespace ? `${this.namespace}.${this.value}` : this.value;
+  }
+
+  withNamespace(namespace: string) {
+    return new Ident(this.value, namespace);
   }
 }
 
@@ -614,22 +517,19 @@ const listItemNeedsParens = (item: Expression, sep: Separator) => {
   return false;
 };
 
-export function stringifyList(
-  container: Container<Expression>,
-  separator?: Separator,
-) {
+export function stringifyList(elements: Expression[], separator?: Separator) {
   let result = '';
 
   let sep: string = separator || ' ';
   if (separator === '/') sep = ' / ';
   if (separator === ',') sep += ' ';
 
-  for (const [idx, node] of container.nodes.entries()) {
+  for (const [idx, node] of elements.entries()) {
     result += listItemNeedsParens(node, separator ?? ' ')
       ? `(${node.toString()})`
       : node.toString();
 
-    if (idx !== container.nodes.length - 1) {
+    if (idx !== elements.length - 1) {
       result += sep;
     }
   }
@@ -641,7 +541,7 @@ export class List<T extends Expression = Expression> extends Container<T> {
   type = 'list' as const;
 
   *[Symbol.iterator]() {
-    for (const [child] of this.children()) yield child;
+    for (const child of this.nodes.values()) yield child;
   }
 
   constructor(
@@ -668,7 +568,6 @@ export class List<T extends Expression = Expression> extends Container<T> {
       return expr;
     }
 
-    expr.replaceWith(first.remove());
     return first;
   }
 
@@ -690,10 +589,14 @@ export class List<T extends Expression = Expression> extends Container<T> {
   }
 
   toString() {
-    let result = stringifyList(this, this.separator);
+    let result = stringifyList(this.nodes, this.separator);
 
     if (this.brackets) result = `[${result}]`;
     return result;
+  }
+
+  toArray() {
+    return this.nodes.slice();
   }
 }
 
@@ -704,7 +607,7 @@ export class Map<
   type = 'map' as const;
 
   *[Symbol.iterator]() {
-    for (const [child] of this.children()) yield child;
+    for (const child of this.nodes.values()) yield child;
   }
 
   constructor(properties: readonly [K, V][]) {
@@ -727,32 +630,34 @@ export class Map<
 // Functions
 // ----------------------------------------
 
-export abstract class BaseFunction extends Container<Expression> {
-  constructor(public name: Ident, args: Expression | Expression[]) {
-    super(args);
+export abstract class BaseFunction extends Node {
+  args: Expression[];
+
+  constructor(public callee: Ident, args: Expression | Expression[]) {
+    super();
+
+    this.args = ([] as Expression[]).concat(args);
   }
 
   get isVar() {
     return (
-      this.name.toString() === 'var' &&
-      this.nodes[0].type === 'ident' &&
-      this.nodes[0].isCustomProperty
+      this.callee.toString() === 'var' &&
+      this.args[0].type === 'ident' &&
+      this.args[0].isCustomProperty
     );
   }
 
   toString(): string {
-    return `${this.name}(${stringifyList(this, ',')})`;
+    return `${this.callee}(${stringifyList(this.args, ',')})`;
   }
 }
 
-export class Function extends BaseFunction {
-  type = 'function' as const;
+export class CallExpression extends BaseFunction {
+  type = 'call-expression' as const;
 
-  constructor(public name: Ident, args: Expression) {
-    // unwrap nested calcs
-    // ??? needed
+  constructor(callee: Ident, args: Expression) {
     super(
-      name,
+      callee,
       args.type === 'list' && (args.separator === ',' || !args.separator)
         ? (args.nodes as any)
         : args,
@@ -760,14 +665,14 @@ export class Function extends BaseFunction {
   }
 }
 
-export class MathFunction extends BaseFunction {
-  type = 'math-function' as const;
+export class MathCallExpression extends BaseFunction {
+  type = 'math-call-expression' as const;
 
-  constructor(name: 'clamp' | 'min' | 'max', params: Expression[]) {
+  constructor(callee: 'clamp' | 'min' | 'max', params: Expression[]) {
     // unwrap nested calcs
     // ??? needed
     super(
-      new Ident(name),
+      new Ident(callee),
       params?.map((p) => (p.type === 'calc' ? p.expression : p)),
     );
   }
@@ -782,15 +687,11 @@ export class MathFunction extends BaseFunction {
   }
 }
 
-export class Calc extends Container<Expression> {
+export class Calc extends Node {
   type = 'calc' as const;
 
-  get expression() {
-    return this.nodes[0];
-  }
-
-  set expression(expr: Expression) {
-    this.nodes[0].replaceWith(expr);
+  constructor(public expression: Expression) {
+    super();
   }
 
   toString(): string {
@@ -798,7 +699,7 @@ export class Calc extends Container<Expression> {
       return `(${this.expression.toString()})`;
     }
 
-    return MathFunction.withContext(
+    return MathCallExpression.withContext(
       () => `calc(${this.expression.toString()})`,
     );
   }
@@ -841,19 +742,11 @@ export class Operator extends Node {
   }
 }
 
-export class UnaryExpression extends Container<Expression> {
+export class UnaryExpression extends Node {
   type = 'unary-expression' as const;
 
-  constructor(public operator: UnaryOperators, argument: Expression) {
-    super([argument]);
-  }
-
-  get argument() {
-    return this.nodes[0];
-  }
-
-  set argument(argument: Expression) {
-    this.nodes[0].replaceWith(argument);
+  constructor(public operator: UnaryOperators, public argument: Expression) {
+    super();
   }
 
   toString(): string {
@@ -866,37 +759,15 @@ export class UnaryExpression extends Container<Expression> {
   }
 }
 
-export class BinaryExpression extends Container {
+export class BinaryExpression extends Node {
   type = 'binary-expression' as const;
 
-  readonly nodes!: [Expression, Operator, Expression];
-
-  constructor(left: Expression, operator: Operator, right: Expression) {
-    super([left, operator, right]);
-  }
-
-  get left(): Expression {
-    return this.nodes[0] as any;
-  }
-
-  set left(left: Expression) {
-    this.nodes[0].replaceWith(left);
-  }
-
-  get operator(): Operator {
-    return this.nodes[1] as any;
-  }
-
-  set operator(op: Operator) {
-    this.nodes[1].replaceWith(op);
-  }
-
-  get right(): Expression {
-    return this.nodes[2] as any;
-  }
-
-  set right(right: Expression) {
-    this.nodes[2].replaceWith(right);
+  constructor(
+    public left: Expression,
+    public operator: Operator,
+    public right: Expression,
+  ) {
+    super();
   }
 
   toString(): string {
@@ -930,27 +801,15 @@ export class BinaryExpression extends Container {
   }
 }
 
-export class Range extends Container<Expression> {
+export class Range extends Node {
   type = 'range' as const;
 
-  constructor(from: Expression, to: Expression, public exclusive = false) {
-    super([from, to]);
-  }
-
-  get from() {
-    return this.first;
-  }
-
-  set from(expr: Expression) {
-    this.nodes[0].replaceWith(expr);
-  }
-
-  get to() {
-    return this.last;
-  }
-
-  set to(expr: Expression) {
-    this.nodes[1].replaceWith(expr);
+  constructor(
+    public from: Expression,
+    public to: Expression,
+    public exclusive = false,
+  ) {
+    super();
   }
 
   toList(): List {
@@ -1086,19 +945,19 @@ export class ForCondition extends Container<Expression> {
   // }
 }
 
-export class EachCondition extends Container<Expression> {
+export class EachCondition extends Node {
   type = 'each-condition' as const;
 
   readonly variables: Variable[];
 
-  constructor(variables: Variable | Variable[], expr: Expression) {
-    super(expr);
+  constructor(variables: Variable | Variable[], public expr: Expression) {
+    super();
 
     this.variables = ([] as Variable[]).concat(variables);
   }
 
   toString(): string {
-    return `${this.variables.join(', ')} in ${this.first}`;
+    return `${this.variables.join(', ')} in ${this.expr}`;
   }
 }
 
@@ -1119,19 +978,9 @@ export class DeclarationValue<T extends Node = Expression> extends Container<
 type AnyIdent = InterpolatedIdent | Ident | Interpolation;
 type AnyString = StringLiteral | StringTemplate;
 
-export abstract class BaseSimpleSelector<
-  T extends AnyIdent = AnyIdent
-> extends Container<T> {
-  constructor(public readonly prefix: string, name: AnyIdent) {
-    super(name as T);
-  }
-
-  get name() {
-    return this.first;
-  }
-
-  set name(name: AnyIdent) {
-    this.first.replaceWith(name);
+export abstract class BaseSimpleSelector extends Node {
+  constructor(public readonly prefix: string, public name: AnyIdent) {
+    super();
   }
 
   toString() {
@@ -1171,19 +1020,11 @@ export class UniversalSelector extends Node {
   }
 }
 
-export class ParentSelector extends Container<AnyIdent> {
+export class ParentSelector extends Node {
   type = 'parent-selector' as const;
 
-  constructor(prefix?: AnyIdent, suffix?: AnyIdent) {
-    super([prefix, suffix].filter(Boolean) as any);
-  }
-
-  get prefix() {
-    return this.first;
-  }
-
-  get suffix() {
-    return this.last;
+  constructor(public prefix?: AnyIdent, public suffix?: AnyIdent) {
+    super();
   }
 
   static merge(compound: CompoundSelector, nodes: ComplexSelectorNode[]) {
@@ -1193,33 +1034,6 @@ export class ParentSelector extends Container<AnyIdent> {
     }
 
     let nextNodes = nodes;
-
-    if (parent.suffix) {
-      nextNodes = [...nodes];
-      const last = nextNodes.pop()!;
-
-      if (last.type !== 'compound-selector') {
-        throw parent.error(
-          `Parent ${last.parent} is incompatible with this selector.`,
-        );
-      }
-
-      const suffix = parent.suffix as Ident;
-      const simple = last.last;
-
-      if (
-        simple.type === 'id-selector' ||
-        simple.type === 'class-selector' ||
-        simple.type === 'type-selector' ||
-        (simple.type === 'pseudo-selector' && !simple.params)
-      ) {
-        simple.first.replaceWith(new Ident(`${simple.name}${suffix}`));
-
-        nextNodes.push(new CompoundSelector([...last.nodes, ...rest]));
-      } else {
-        throw parent.error('Invalid suffix');
-      }
-    }
 
     if (parent.prefix) {
       nextNodes = [...nodes];
@@ -1235,11 +1049,39 @@ export class ParentSelector extends Container<AnyIdent> {
       const simple = first.first;
 
       if (simple.type === 'type-selector') {
-        simple.first.replaceWith(new Ident(`${prefix}${simple.name}`));
+        simple.name = new Ident(`${prefix}${simple.name}`);
       } else {
-        throw parent.error('Invalid prefix');
+        first.nodes.unshift(new TypeSelector(prefix));
+        // throw parent.error('Invalid prefix');
       }
     }
+
+    nextNodes = [...nodes];
+    const last = nextNodes.pop()!;
+
+    if (last.type !== 'compound-selector') {
+      throw parent.error(
+        `Parent ${last.parent} is incompatible with this selector.`,
+      );
+    }
+
+    if (parent.suffix) {
+      const suffix = parent.suffix as Ident;
+      const simple = last.last;
+
+      if (
+        simple.type === 'id-selector' ||
+        simple.type === 'class-selector' ||
+        simple.type === 'type-selector' ||
+        (simple.type === 'pseudo-selector' && !simple.params)
+      ) {
+        simple.name = new Ident(`${simple.name}${suffix}`);
+      } else {
+        throw parent.error('Invalid suffix');
+      }
+    }
+
+    nextNodes.push(new CompoundSelector([...last.nodes, ...rest]));
 
     return nextNodes;
   }
@@ -1249,23 +1091,15 @@ export class ParentSelector extends Container<AnyIdent> {
   }
 }
 
-export class AttributeSelector extends Container<AnyString | AnyIdent> {
+export class AttributeSelector extends Node {
   type = 'attribute-selector' as const;
 
   constructor(
-    attribute: AnyIdent,
+    public attribute: AnyIdent,
     public operator?: '=' | '~=' | '|=' | '^=' | '$=' | '*=',
-    value?: AnyString | AnyIdent,
+    public value?: AnyString | AnyIdent,
   ) {
-    super(value ? [attribute, value] : attribute);
-  }
-
-  get attribute() {
-    return this.first;
-  }
-
-  get value() {
-    return this.nodes.length === 2 ? this.last : undefined;
+    super();
   }
 
   toString() {
@@ -1277,42 +1111,31 @@ export class AttributeSelector extends Container<AnyString | AnyIdent> {
   }
 }
 
-export class PseudoSelector extends Container<
-  InterpolatedIdent | Ident | AnyString | SelectorList
-> {
+export class PseudoSelector extends Node {
   type = 'pseudo-selector' as const;
 
+  params: AnyString | undefined;
+
+  selector?: SelectorList;
+
   constructor(
-    name: InterpolatedIdent | Ident,
+    public name: InterpolatedIdent | Ident,
     public isElement = false,
-    params?: AnyString | SelectorList,
+    paramsOrSelector?: AnyString | SelectorList,
   ) {
-    super(params ? [name, params] : [name]);
-  }
+    super();
 
-  get name(): InterpolatedIdent | Ident {
-    return this.first as any;
-  }
-
-  get params(): AnyString | SelectorList | undefined {
-    return this.nodes.length > 1 ? (this.last as any) : undefined;
-  }
-
-  set params(params: AnyString | SelectorList | undefined) {
-    if (this.nodes.length === 1) {
-      if (!params) this.last.remove();
-      else this.last.replaceWith(params);
-    } else if (params) this.push(params);
-  }
-
-  get selector() {
-    return this.params?.type === 'selector-list' ? this.params : null;
+    if (paramsOrSelector?.type === 'selector-list')
+      this.selector = paramsOrSelector;
+    else {
+      this.params = paramsOrSelector as AnyString;
+    }
   }
 
   asSelector(selector: SelectorList) {
     const next = this.clone();
     selector[SOURCE] = selector[SOURCE] ?? this.params![SOURCE];
-    next.params = selector;
+    next.selector = selector;
     return next;
   }
 
@@ -1331,6 +1154,12 @@ export type SimpleSelector =
   | ClassSelector
   | AttributeSelector
   | PseudoSelector;
+
+export type Selector =
+  | SimpleSelector
+  | ComplexSelectorNode
+  | ComplexSelector
+  | SelectorList;
 
 export class CompoundSelector extends Container<SimpleSelector> {
   type = 'compound-selector' as const;
@@ -1392,23 +1221,30 @@ export class SelectorList extends Container<
   type = 'selector-list' as const;
 
   *[Symbol.iterator]() {
-    for (const [child] of this.children()) yield child;
+    for (const child of this.nodes.values()) yield child;
   }
 
   hasParentSelectors() {
     return this.nodes.some((n) => n.hasParentSelectors());
   }
 
-  // private resolveCompoundParentSelectors(compound: CompoundSelector, parentList: SelectorList) {
-  //   // if (!compound.hasParentSelectors()) return false
-
-  //   const next = compound.nodes.map(simple => {
-  //     if (simple.type ===)
-  //   })
-  // }
-
   toString(): string {
     return stringifyContainer(this, ', ');
+  }
+
+  toList() {
+    return new List(
+      this.nodes.map(
+        (n) =>
+          new List(
+            n.type === 'compound-selector'
+              ? [new Ident(String(n))]
+              : n.nodes.map((nn) => new Ident(String(nn))),
+            ' ',
+          ),
+      ),
+      ',',
+    );
   }
 }
 
@@ -1419,3 +1255,50 @@ export class SelectorList extends Container<
 //     return this.first;
 //   }
 // }
+
+export class Parameter extends Node {
+  type = 'parameter' as const;
+
+  constructor(
+    public name: Variable,
+    public defaultValue: Expression | null = null,
+  ) {
+    super();
+  }
+}
+
+export class Argument extends Node {
+  type = 'argument' as const;
+
+  constructor(public name: Variable) {
+    super();
+  }
+}
+
+export class KeywordArgument extends Node {
+  type = 'keyword-argument' as const;
+
+  constructor(public name: Variable, public value?: Expression) {
+    super();
+  }
+}
+
+export class CallableDeclaration extends Node {
+  type = 'callable-declaration' as const;
+
+  constructor(
+    public name: Ident,
+    public params: Parameter[] = [],
+    public body: ChildNode[] = [],
+  ) {
+    super();
+  }
+}
+
+export class MixinDeclaration extends Node {
+  type = 'mixin-declaration' as const;
+
+  constructor(public name: Ident, public params: Parameter[] = []) {
+    super();
+  }
+}

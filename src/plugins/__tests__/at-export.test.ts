@@ -22,28 +22,29 @@ describe('@export', () => {
   it.each([
     [
       `@export $bar, $foo from './other'`,
-      {
-        $bar: { node: new Ast.Numeric(1, 'px') },
-        $foo: { node: new Ast.Color('red') },
-      },
+
+      new Map([
+        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      ]),
     ],
     [
       `@export * from './other'`,
-      {
-        $bar: { node: new Ast.Numeric(1, 'px') },
-        $foo: { node: new Ast.Color('red') },
-      },
+      new Map([
+        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      ]),
     ],
     [
       `@export $bar as $baz, $foo;`,
-      {
-        $baz: { node: new Ast.Numeric(1, 'px') },
-        $foo: { node: new Ast.Color('red') },
-      },
-      {
-        $bar: { node: new Ast.Numeric(1, 'px') },
-        $foo: { node: new Ast.Color('red') },
-      },
+      new Map([
+        ['$baz', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      ]),
+      new Map([
+        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      ]),
     ],
   ])(
     'should export variables for: %s',
@@ -57,25 +58,25 @@ describe('@export', () => {
         files: {
           '/foo.js': {
             [EXPORTS]: exports,
-            scope: new Scope({ variables: local }),
+            scope: new Scope({ members: local }),
           },
           '/other': {
             [EXPORTS]: new Scope({
-              variables: {
-                $bar: { node: new Ast.Numeric(1, 'px') },
-                $foo: { node: new Ast.Color('red') },
-              },
+              members: new Map([
+                ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+                ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+              ]),
             }),
           },
         },
       } as any);
 
-      const result: any = {};
-      Object.entries(expected).forEach(([key, value]) => {
-        result[key] = expect.objectContaining(value);
+      const result: any = new Map();
+      expected.forEach((value, key) => {
+        result.set(key, expect.objectContaining(value));
       });
 
-      expect(exports.variables).toEqual(expect.objectContaining(result));
+      expect(exports.members).toEqual(result);
     },
   );
 
@@ -93,10 +94,10 @@ describe('@export', () => {
           '/foo.js': { scope: new Scope() },
           '/other': {
             [EXPORTS]: new Scope({
-              variables: {
-                $bar: { node: new Ast.Numeric(1, 'px') },
-                $foo: { node: new Ast.Color('red') },
-              },
+              members: new Map([
+                ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+                ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+              ]),
             }),
           },
           '/none': { [EXPORTS]: new Scope() },

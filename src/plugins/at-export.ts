@@ -56,7 +56,7 @@ const exportsPlugin: PostcssPlugin = (css, { opts }) => {
           );
         }
 
-        exports.set(specifier.exported, other.node.clone(), parsed.source);
+        exports.set(specifier.exported, { ...other, source: parsed.source });
       }
     }
 

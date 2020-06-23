@@ -236,8 +236,8 @@ NamespacedVariable
   }
 
 
-ParentSelector
-  = comment* '&' { return init(Ast.ParentSelector) }
+ParentSelectorReference
+  = comment* '&' { return init(Ast.ParentSelectorReference) }
 
 
 Color
@@ -281,8 +281,8 @@ Url
 
 
 Function  "function"
-  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ params:Expression _ ")" {
-    return init(Ast.Function, name[0], params);
+  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ args:Expression _ ")" {
+    return init(Ast.CallExpression, name[0], args);
   }
 
 Interpolation "interpolation"
@@ -305,11 +305,11 @@ math_params "list of math expressions"
     return [head, ...tail]
   }
 
-MathFunction "calc, min, max, or clamp function"
+MathCallExpression "calc, min, max, or clamp function"
   = comment* name:math_function_names "(" _ params:(math_params) _ ")"  {
     return name.toLowerCase() === 'calc'
       ? init(Ast.Calc, params[0])
-      : init(Ast.MathFunction, name.toLowerCase(), params)
+      : init(Ast.MathCallExpression, name.toLowerCase(), params)
   }
 
 // comma separated lists not allowed in a Map b/c of parsing ambiguity
@@ -332,10 +332,10 @@ Value
   / Numeric
   / NullLiteral
   / BooleanLiteral
-  / ParentSelector
+  / ParentSelectorReference
   / StringTemplate
   / Url
-  / MathFunction
+  / MathCallExpression
   / Function
   / NamespacedVariable
   / Variable
@@ -641,7 +641,7 @@ values
 
 
 declaration_prop
-  = InterpolatedIdent
+  = Variable / InterpolatedIdent
 
 
 declaration_value
@@ -676,14 +676,14 @@ UniversalSelector
 ElementSelector
   = comment* name:InterpolatedIdent { return init(Ast.TypeSelector, name) }
 
-ParentTypeSelector
+ParentSelector
   = comment* prefix:InterpolatedIdent? '&' suffix:InterpolatedIdent? {
     return init(Ast.ParentSelector, prefix ?? undefined, suffix ?? undefined)
   }
 
 TypeSelector "type selector"
   = UniversalSelector
-  / ParentTypeSelector
+  / ParentSelector
   / ElementSelector
 
 
@@ -703,7 +703,7 @@ AttributeSelector
 
 PseudoSelector
   = ":" el:":"? name:InterpolatedIdent value:("(" _ v:declaration_value _ ")" { return v })? {
-    return init(Ast.PseudoSelector, name, !!el, value)
+    return init(Ast.PseudoSelector, name, !!el, value ?? undefined)
   }
 
 
@@ -746,6 +746,53 @@ SelectorList
 
 selector 'selector'
   = SelectorList
+
+
+// Declarations
+// -----------------------
+
+Parameter
+  = name:Variable _ ":" _ defaultValue:Expression? {
+    return init(Ast.Parameter, name, defaultValue)
+  }
+  / name:Variable {
+    return init(Ast.Parameter, name)
+  }
+
+
+ParameterList
+  = head:Parameter _ tail:(',' param:Parameter { return param })* {
+    return [head, ...tail]
+  }
+
+callable_declaration
+  = comment* name:Ident params:("(" _ p:ParameterList? _ ")"  { return p })? {
+    return init(Ast.CallableDeclaration, name, params || [])
+  }
+
+
+Argument
+  = name:Variable _ ":" _ value:Expression? {
+    return init(Ast.KeywordArgument, name, value)
+  }
+  / name:Variable {
+    return init(Ast.Argument, name)
+  }
+
+
+ArgumentList
+  = head:Argument _ tail:(',' param:Argument { return param })* {
+    return [head, ...tail]
+  }
+
+call_expression
+  = comment* name:Ident params:("(" _ p:ParameterList? _ ")"  { return p })? {
+    return init(Ast.CallableDeclaration, name, params || [])
+  }
+
+
+// mixin_declaration
+//   = MixinDeclaration
 
 // function_declaration
 //   = comment* name:Ident"(" _ params:Expression _ ")" {

@@ -57,7 +57,7 @@ export class Reducer {
           this.inCalc--;
         }
       }
-      case 'math-function':
+      case 'math-call-expression':
         this.reduceChildren(node);
 
         return math[node.name](node.nodes as math.Term[], !this.inCalc);

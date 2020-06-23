@@ -17,6 +17,7 @@ import {
   Numeric,
   Operator,
   ParentSelector,
+  ParentSelectorReference,
   PseudoSelector,
   SelectorList,
   StringLiteral,
@@ -249,6 +250,27 @@ describe('parser: values', () => {
         new SelectorList(
           new CompoundSelector([
             new ParentSelector(undefined, new Ident('-foo')),
+          ]),
+        ),
+      ],
+      [
+        '&-foo-#{&} #{&}',
+        new SelectorList(
+          new ComplexSelector([
+            new CompoundSelector([
+              new ParentSelector(
+                undefined,
+                new InterpolatedIdent(
+                  ['-foo-', ''],
+                  [new ParentSelectorReference()],
+                ),
+              ),
+            ]),
+            new CompoundSelector([
+              new TypeSelector(
+                new Interpolation([new ParentSelectorReference()]),
+              ),
+            ]),
           ]),
         ),
       ],

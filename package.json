@@ -22,7 +22,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "prettier": "@4c/prettier-config",
   "husky": {
     "hooks": {
       "pre-commit": "lint-staged"
@@ -67,6 +66,7 @@
     "eslint-plugin-prettier": "^3.1.2",
     "husky": "^3.0.9",
     "jest": "^25.1.0",
+    "jest-diff": "^26.0.1",
     "lint-staged": "^9.4.2",
     "memfs": "^3.2.0",
     "pegjs": "^0.10.0",

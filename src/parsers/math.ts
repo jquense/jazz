@@ -3,9 +3,9 @@ import {
   BinaryExpression,
   BooleanLiteral,
   Calc,
+  CallExpression,
   Expression,
-  Function,
-  MathFunction,
+  MathCallExpression,
   Numeric,
   Operator,
   Operators,
@@ -13,16 +13,19 @@ import {
   isStringish,
 } from './Ast';
 
-export type Term = Numeric | Calc | MathFunction | Function;
+export type Term = Numeric | Calc | MathCallExpression | CallExpression;
 
 export const isMathTerm = (term: Expression): term is Term =>
   term.type === 'numeric' ||
   term.type === 'calc' ||
-  term.type === 'math-function' ||
-  term.type === 'function';
+  term.type === 'math-call-expression' ||
+  term.type === 'call-expression';
+
+export const isCalc = (term: Expression): term is MathCallExpression =>
+  term.type === 'math-call-expression' && term.callee.value === 'calc';
 
 export const isResolvableToNumeric = (fn: Value): boolean =>
-  fn.type === 'calc' || fn.type === 'math-function';
+  fn.type === 'calc' || fn.type === 'math-call-expression';
 
 export const isArithmeticOperator = (
   op: Operators,
@@ -40,8 +43,8 @@ const throwIrreducable = (a: Term, b: Term) => {
   );
 };
 
-const assertValidMathFunction = (a: Term) => {
-  if (a.type === 'function' && !a.isVar)
+const assertValidMathCallExpression = (a: Term) => {
+  if (a.type === 'call-expression' && !a.isVar)
     throw new Error(`The function ${a} is not valid in a Math expression`);
 };
 
@@ -55,8 +58,8 @@ export function add(a: Term, b: Term, mustReduce = false) {
   }
 
   if (mustReduce) throwIrreducable(a, b);
-  assertValidMathFunction(a);
-  assertValidMathFunction(b);
+  assertValidMathCallExpression(a);
+  assertValidMathCallExpression(b);
 
   if (a.type === 'calc') a = a.expression as any;
   if (b.type === 'calc') b = b.expression as any;
@@ -73,8 +76,8 @@ export function subtract(a: Term, b: Term, mustReduce = false) {
   }
 
   if (mustReduce) throwIrreducable(a, b);
-  assertValidMathFunction(a);
-  assertValidMathFunction(b);
+  assertValidMathCallExpression(a);
+  assertValidMathCallExpression(b);
 
   if (a.type === 'calc') a = a.expression as any;
   if (b.type === 'calc') b = b.expression as any;
@@ -101,8 +104,8 @@ export function multiply(a: Term, b: Term, mustReduce = false) {
   }
 
   if (mustReduce) throwIrreducable(a, b);
-  assertValidMathFunction(a);
-  assertValidMathFunction(b);
+  assertValidMathCallExpression(a);
+  assertValidMathCallExpression(b);
 
   if (a.type === 'calc') a = a.expression as any;
   if (b.type === 'calc') b = b.expression as any;
@@ -122,8 +125,8 @@ export function divide(a: Term, b: Term, mustReduce = false) {
   }
 
   if (mustReduce) throwIrreducable(a, b);
-  assertValidMathFunction(a);
-  assertValidMathFunction(b);
+  assertValidMathCallExpression(a);
+  assertValidMathCallExpression(b);
 
   if (a.type === 'calc') a = a.expression as any;
   if (b.type === 'calc') b = b.expression as any;
@@ -158,7 +161,7 @@ export function min(terms: Term[], mustReduce = false) {
   let current: Numeric | null = null;
 
   const getExpression = () => {
-    if (!mustReduce) return new MathFunction('min', terms);
+    if (!mustReduce) return new MathCallExpression('min', terms);
     throw new Error(
       `Cannot evaluate the min of ${terms.join(
         ',',
@@ -190,7 +193,7 @@ export function max(terms: Term[], mustReduce = false) {
   let current: Numeric | null = null;
 
   const getExpression = () => {
-    if (!mustReduce) return new MathFunction('max', terms);
+    if (!mustReduce) return new MathCallExpression('max', terms);
     throw new Error(
       `Cannot evaluate the max of ${terms.join(
         ',',

@@ -6,7 +6,7 @@ import Parser from '../parsers';
 import { PostcssPlugin } from '../types';
 import Scope from '../utils/Scope';
 // import { isVariableDeclaration } from '../utils/Variables';
-import { Reducer } from '../utils/evaluate2';
+import { Reducer } from '../utils/evaluate3';
 // import walk from '../utils/visitor';
 
 // const ParseCache = new WeakMap<postcss.Node, T>()

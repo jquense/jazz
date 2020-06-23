@@ -1,34 +1,64 @@
+import { AtRule } from 'postcss';
+
 import * as Ast from '../parsers/Ast';
+import { ParsedRule } from './visitor';
 
 export type VariableMember = {
+  type: 'variable';
   source?: string;
   node: Ast.ReducedExpression;
 };
 
 export type FunctionMember = {
+  type: 'function';
   source?: string;
   fn: (...args: Ast.Expression[]) => Ast.ReducedExpression;
 };
 
-export type Member = VariableMember | FunctionMember;
+export type MixinMember = {
+  type: 'mixin';
+  source?: string;
+  node: Ast.CallableDeclaration;
+};
+
+export type ParentSelectorMember = {
+  type: 'parent-selector';
+  source?: string;
+  node: Ast.MixinDeclaration;
+};
+
+export type Member =
+  | VariableMember
+  | FunctionMember
+  | MixinMember
+  | ParentSelectorMember;
+
+const HOIST = Symbol('children to hoist');
+
+type Hoistable = ParsedRule | AtRule;
+type RuleWithChildren = ParsedRule & { [HOIST]: WeakSet<Hoistable> };
+
+type Identifier = Ast.Ident | Ast.Variable;
 
 export default class Scope {
-  readonly variables: Record<string, VariableMember> = Object.create(null);
-
-  readonly funcs: Record<string, FunctionMember> = Object.create(null);
+  readonly members = new Map<string, Member>();
 
   parent: Scope | null = null;
 
-  currentRule: Ast.SelectorList | null = null;
+  private rule: ParsedRule | null | null = null;
 
-  constructor(opts?: {
-    variables?: Record<string, VariableMember>;
-    funcs?: Record<string, FunctionMember>;
-  }) {
+  constructor(opts: { members?: Map<string, Member> } = {}) {
     if (opts) {
-      this.variables = opts.variables ?? this.variables;
-      this.funcs = opts.funcs ?? this.funcs;
+      this.members = opts.members ?? new Map<string, Member>();
     }
+  }
+
+  get currentRule() {
+    return this.rule ?? this.parent?.currentRule ?? null;
+  }
+
+  set currentRule(rule: ParsedRule | null) {
+    this.rule = rule;
   }
 
   createChildScope() {
@@ -44,85 +74,67 @@ export default class Scope {
   }
 
   from(scope: Scope, namespace?: string) {
-    for (const [key, value] of Object.entries(scope.variables)) {
-      this.set(new Ast.Variable(key.slice(1), namespace), value);
+    for (const [key, value] of scope.members.entries()) {
+      // if (value.type === 'variable')
+      this.set(namespace ? `${namespace}.${key}` : key, { ...value });
     }
-    for (const [key, value] of Object.entries(scope.funcs)) {
-      this.set(new Ast.Ident(key, namespace), value);
-    }
+
     return this;
   }
 
-  get(ident: Ast.Ident): FunctionMember;
+  // toHoist(node: ParsedRule | AtRule) {
+  //   this.rule![HOIST].add(node);
+  // }
 
-  get(ident: Ast.Variable): VariableMember;
+  getWithScope(ident: Identifier): [Member, Scope] | undefined {
+    const member = this.members.get(ident.toString());
 
-  get(ident: Ast.Ident | Ast.Variable): FunctionMember | VariableMember;
-
-  get(ident: Ast.Ident | Ast.Variable) {
-    const cache = ident.type === 'variable' ? this.variables : this.funcs;
-
-    return cache[ident.toString()] ?? this.parent?.get(ident as any);
+    return member ? [member, this] : this.parent?.getWithScope(ident);
   }
 
-  set(
-    ident: Ast.Variable,
-    nodeOrMember: Ast.ReducedExpression | VariableMember,
-    source?: string,
-  ): boolean;
+  get(ident: Identifier): Member | undefined {
+    return this.members.get(ident.toString()) ?? this.parent?.get(ident);
+  }
 
-  set(
-    ident: Ast.Ident,
-    funcOrMember: Function | FunctionMember,
-    source?: string,
-  ): boolean;
+  getVariable(ident: Ast.Variable) {
+    const member = this.get(ident);
+    return member?.type === 'variable' ? member : undefined;
+  }
 
-  set(
-    ident: Ast.Ident | Ast.Variable,
-    nodeOrFuncOrMember:
-      | Ast.ReducedExpression
-      | VariableMember
-      | FunctionMember
-      | Function,
-    source?: string,
-  ): boolean;
+  getFunction(ident: Ast.Ident) {
+    const member = this.get(ident);
+    return member?.type === 'function' ? member : undefined;
+  }
 
-  set(
-    ident: Ast.Ident | Ast.Variable,
-    nodeOrFuncOrMember:
-      | Ast.ReducedExpression
-      | VariableMember
-      | FunctionMember
-      | Function,
-    source?: string,
-  ) {
-    const name = ident.toString();
-    const cache = ident.type === 'variable' ? this.variables : this.funcs;
+  getMixin(ident: Ast.Variable) {
+    const member = this.get(ident);
+    return member?.type === 'mixin' ? member : undefined;
+  }
 
-    if (name in cache) {
+  set(ident: Identifier | string, member: Member) {
+    const name = String(ident);
+    if (this.members.has(name)) {
       return false;
     }
 
-    if (ident.type === 'variable') {
-      this.variables[name] =
-        'type' in nodeOrFuncOrMember
-          ? { node: nodeOrFuncOrMember, source }
-          : { ...(nodeOrFuncOrMember as VariableMember), source };
-    } else {
-      this.funcs[name] =
-        typeof nodeOrFuncOrMember === 'function'
-          ? { fn: nodeOrFuncOrMember, source }
-          : { ...(nodeOrFuncOrMember as FunctionMember), source };
-    }
+    this.members.set(name, member);
 
     return true;
   }
 
   setVariable(name: string, node: Ast.ReducedExpression, source?: string) {
-    return this.set(new Ast.Variable(name), node, source);
+    return this.set(new Ast.Variable(name), {
+      type: 'variable',
+      node,
+      source,
+    });
   }
 
-  setFunction(name: string, fn: Function, source?: string) {
-    return this.set(new Ast.Ident(name), fn, source);
+  setFunction(name: string, fn: any, source?: string) {
+    return this.set(new Ast.Ident(name), { type: 'function', fn, source });
+  }
+
+  setMixin(name: string, node: Ast.CallableDeclaration, source?: string) {
+    return this.set(new Ast.Ident(name), { type: 'mixin', node, source });
   }
 }

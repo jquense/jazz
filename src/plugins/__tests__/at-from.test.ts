@@ -50,19 +50,19 @@ describe('@from', () => {
     await run(css, scope, {
       '/other': {
         [EXPORTS]: new Scope({
-          variables: {
-            $bar: { node: new Ast.Numeric(1, 'px') },
-            $foo: { node: new Ast.Color('red') },
-          },
+          members: new Map([
+            ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
+            ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+          ]),
         }),
       },
     });
 
-    const result: any = {};
+    const result: any = new Map();
     Object.entries(expected).forEach(([key, value]) => {
-      result[key] = expect.objectContaining(value);
+      result.set(key, expect.objectContaining(value));
     });
-    // console.log(scope);
-    expect(scope.variables).toEqual(expect.objectContaining(result));
+
+    expect(scope.members).toEqual(result);
   });
 });

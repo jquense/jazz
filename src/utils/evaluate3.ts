@@ -1,13 +1,19 @@
 /* eslint-disable no-nested-ternary */
 /* eslint-disable no-loop-func */
-import postcss, { AtRule, ChildNode, Declaration, Rule } from 'postcss';
+
+import postcss, { AtRule, ChildNode } from 'postcss';
 
 import Parser from '../parsers';
 import * as Ast from '../parsers/Ast';
 import * as math from '../parsers/math';
 import Scope from './Scope';
-import { isVariableDeclaration } from './Variables';
 import unvendor from './unvendor';
+import Walker, {
+  AnyNode,
+  ParsedDeclaration,
+  ParsedRule,
+  Path,
+} from './visitor';
 
 type Selector =
   | Ast.SelectorList
@@ -37,6 +43,9 @@ type Resolved<T> = T extends Ast.Variable
 
 type ResolvedValue = Resolved<Ast.Value>;
 
+const detach = (node: postcss.Container) =>
+  postcss.root({ nodes: node.clone().nodes });
+
 const asComplexNodes = (node: Ast.ComplexSelector | Ast.CompoundSelector) =>
   node.type === 'compound-selector' ? [node] : node.nodes.slice();
 
@@ -63,17 +72,20 @@ const selectorPsuedoClasses = [
 ];
 
 const selectorPseudoElements = ['slotted'];
+
 export class Reducer {
   private inCalc = 0;
 
-  constructor(private currentScope: Scope, public parser: Parser) {}
+  private walker: Walker<this>;
 
-  static reduce(
-    node: Reduceable,
-    scope: Scope,
-    parser: Parser,
-  ): Resolved<Reduceable> {
-    return new Reducer(scope, parser).reduce(node);
+  private toHoist = new WeakSet<AnyNode>();
+
+  constructor(private currentScope: Scope, public parser: Parser) {
+    this.walker = new Walker(this, parser);
+  }
+
+  static reduce(node: AnyNode, scope: Scope, parser: Parser) {
+    return new Reducer(scope, parser).visit(node);
   }
 
   scope(fn: (scope: Scope) => void) {
@@ -86,26 +98,91 @@ export class Reducer {
     }
   }
 
-  reduce(node: Reduceable): Resolved<Reduceable> {
-    switch (node.type) {
-      case 'root':
-        this.reducePostCssNodes(node);
-        return node;
-      case 'rule':
-        this.reduceRule(node);
-        break;
-      case 'selector-list':
-        return this.reduceSelectorList(node);
+  private unwrapAtRule(atRule: AtRule, parent: ParsedRule) {
+    const next = parent.clone({ nodes: [] });
 
-      case 'pseudo-selector': {
-        this.reducePseudoSelector(node);
-        break;
+    atRule.nodes!.forEach((c) => {
+      if (c.type === 'atrule') {
+        this.unwrapAtRule(c, parent);
+      } else if (c.type !== 'rule') {
+        next.append(c);
       }
-      // deal with this one directly b/c free interpolations
-      // are parsed as TypeSelectors
-      case 'type-selector': {
-        this.reduceChildren(node);
-        const inner = node.first;
+    });
+
+    if (next.nodes!.length) {
+      atRule.prepend(next);
+    }
+    return atRule;
+  }
+
+  visit(root: AnyNode) {
+    return this.walker.visit(root, {
+      rule: this.reduceRule,
+      decl: this.reduceDeclaration,
+      atrule: this.reduceAtRule,
+
+      range: this.reduceRange,
+      'call-expression': this.reduceCallExpression,
+      variable(path: Path<Ast.Variable>) {
+        const parentType = path.parent?.type;
+        if (parentType === 'decl' || parentType === 'each-condition') return;
+
+        const variable = this.currentScope.getVariable(path.node);
+
+        if (!variable) {
+          throw new Error(`Variable not defined ${path.node}`);
+        }
+
+        path.replaceWith(variable.node.clone());
+      },
+      'parent-selector-reference': function $(
+        path: Path<Ast.ParentSelectorReference>,
+      ) {
+        const parent = this.currentScope.currentRule?.selectorNodes;
+
+        path.replaceWith(parent ? parent.toList() : new Ast.NullLiteral());
+      },
+
+      interpolation(path: Path<Ast.Interpolation>) {
+        path.visitChildren();
+        return path.node.first;
+      },
+      calc({ node, visitChildren, replaceWith }: Path<Ast.Calc>) {
+        try {
+          this.inCalc++;
+          visitChildren();
+
+          if (
+            this.inCalc > 1 ||
+            node.expression.type === 'calc' ||
+            node.expression.type === 'numeric'
+          ) {
+            replaceWith(node.expression);
+          }
+        } finally {
+          this.inCalc--;
+        }
+      },
+      'math-call-expression': (path: Path<Ast.MathCallExpression>) => {
+        const { node } = path;
+
+        path.visitChildren();
+
+        path.replaceWith(
+          // @ts-ignore
+          math[node.callee.value](node.args as math.Term[], !this.inCalc),
+        );
+      },
+      'unary-expression': this.reduceUnaryExpression,
+      'binary-expression': this.reduceBinaryExpression,
+
+      'selector-list': this.reduceSelectorList,
+      'pseudo-selector': this.reducePseudoSelector,
+
+      'type-selector': (path: Path<Ast.TypeSelector>) => {
+        path.visitChildren();
+
+        const inner = path.node.name;
 
         // this isn't strictly necesary but it makes the AST a bit neater
         if (Ast.isUnquoted(inner)) {
@@ -116,96 +193,19 @@ export class Reducer {
           if (value === '&') return new Ast.ParentSelector();
           if (value === '*') return new Ast.UniversalSelector();
         }
-        break;
-      }
-      case 'decl':
-        this.reduceDeclaration(node);
 
-        break;
-      case 'atrule': {
-        if (node.name === 'if') this.reduceIfRule(node);
-        else if (node.name === 'each') this.reduceEachRule(node);
-        break;
-      }
-      case 'variable': {
-        const variable = this.currentScope.get(node);
-
-        if (!variable) {
-          throw new Error(`Variable not defined ${node.toString()}`);
-        }
-        return variable.node.clone();
-      }
-      case 'range':
-        return this.reduceRange(node);
-
-      case 'list':
-      case 'map':
-      case 'declaration-value':
-        this.reduceChildren(node);
-        break;
-      case 'interpolation':
-        node = this.reduceChildren(node).first;
-        // console.log('I', node.first.remove());
-
-        break;
-
-      case 'unary-expression':
-        return this.reduceUnaryExpression(node);
-      case 'binary-expression':
-        return this.reduceBinaryExpression(node);
-
-      case 'calc': {
-        try {
-          this.inCalc++;
-
-          return this.reduce(this.inCalc > 1 ? node.expression : node);
-        } finally {
-          this.inCalc--;
-        }
-      }
-      case 'math-call-expression':
-        this.reduceChildren(node);
-        // @ts-ignore
-        return math[node.name.value](node.nodes as math.Term[], !this.inCalc);
-      case 'function':
-        return this.reduceFunction(node);
-
-      case 'interpolated-ident': {
-        this.reduceChildren(node);
-
-        return new Ast.Ident(node.toString());
-      }
-      case 'string-template': {
-        this.reduceChildren(node);
-
-        return node;
-      }
-      case 'numeric':
-      case 'string':
-      case 'color':
-      case 'url':
-      case 'boolean':
-      case 'null':
-      case 'ident':
-      case 'comment':
-      case 'parent-selector':
-      case 'universal-selector':
-        break;
-      default:
-        if ('nodes' in node) {
-          this.reduceChildren(node);
-        }
-        break;
-    }
-
-    return node as any;
+        return undefined;
+      },
+    });
   }
 
-  reduceSelectorList(node: Ast.SelectorList) {
-    const parentList = this.currentScope.currentRule;
-    const implicitParent = node.parent?.type !== 'pseudo-selector';
+  reduceSelectorList(path: Path<Ast.SelectorList>) {
+    const { node } = path;
+    const parentList = this.currentScope.currentRule?.selectorNodes;
+    const implicitParent =
+      path.parent?.type !== 'pseudo-selector' && path.node !== parentList;
 
-    node = this.reduceChildren(node);
+    path.visitChildren();
 
     if (!parentList) {
       if (!node.hasParentSelectors()) return node;
@@ -288,53 +288,88 @@ export class Reducer {
     );
   }
 
-  reduceRule(node: Rule) {
-    const parsed = this.reduce(
-      this.parser.selector(node.selector),
-    ) as Ast.SelectorList;
+  reduceRule({ node, ...api }: Path<ParsedRule>) {
+    if (this.toHoist.has(node)) {
+      api.skip();
+      return;
+    }
 
-    node.selector = parsed.toString();
+    api.visit('selectorNodes');
 
     this.scope((scope) => {
-      scope.currentRule = parsed;
-      this.reducePostCssNodes(node);
+      scope.currentRule = node;
+
+      api.visitChildren();
+
+      let after: postcss.ChildNode = node;
+      // path.node.visited = true;
+      node.each((child) => {
+        if (child.type === 'rule') {
+          this.toHoist.add(child as ParsedRule);
+          after.after(child);
+          after = child;
+        }
+        if (child.type === 'atrule') {
+          if (child.name !== 'keyframes') {
+            child = this.unwrapAtRule(child, node).remove();
+          }
+
+          this.toHoist.add(child);
+
+          after.after(child);
+          after = child;
+        }
+      });
+
+      if (after !== node && node.nodes!.length === 0) {
+        api.remove();
+      }
     });
   }
 
-  reduceDeclaration(node: Declaration) {
-    const parsed = this.reduce(this.parser.value(node)) as any;
-    // TODO: handle null
-    node.value = parsed.toString();
+  reduceAtRule(path: Path<AtRule>) {
+    const { node } = path;
 
-    if (isVariableDeclaration(node.prop)) {
-      const name = node.prop.slice(1);
-
-      // console.log(parsed.body);
-      this.currentScope.setVariable(name, parsed.body.clone());
-
-      node.remove();
-      return null;
+    if (this.toHoist.has(node)) {
+      return path.skip();
     }
 
-    const value = this.reduce(this.parser.prop(node));
+    if (node.name === 'if') return this.reduceIfRule(path);
+    if (node.name === 'each') return this.reduceEachRule(path);
+    if (node.name === 'mixin') return this.reduceMixinDeclaration(path);
+
+    return this.scope(() => path.visitChildren());
+  }
+
+  reduceDeclaration(path: Path<ParsedDeclaration>) {
+    path.visitChildren();
+
+    const value = path.node.valueNodes.body as Ast.ReducedExpression;
+
+    if (path.node.propNodes.type === 'variable') {
+      const { name } = path.node.propNodes;
+
+      this.currentScope.setVariable(name, value.clone());
+
+      path.remove();
+      return;
+    }
 
     if (value.type === 'null') {
-      node.remove();
-      return null;
+      path.remove();
     }
-
-    node.prop = value.toString();
-
-    return node;
   }
 
-  reduceRange(node: Ast.Range) {
-    return this.reduceChildren(node).toList() as Resolved<Ast.List>;
+  reduceRange(path: Path<Ast.Range>) {
+    path.visitChildren();
+
+    path.replaceWith(path.node.toList() as Resolved<Ast.List>);
   }
 
-  reducePseudoSelector(node: Ast.PseudoSelector) {
-    node = this.reduceChildren(node);
+  reducePseudoSelector(path: Path<Ast.PseudoSelector>) {
+    path.visit('name');
 
+    const { node } = path;
     const name = unvendor((node.name as Ast.Ident).value);
 
     if (
@@ -343,29 +378,30 @@ export class Reducer {
       ((node.isElement && selectorPseudoElements.includes(name)) ||
         selectorPsuedoClasses.includes(name))
     ) {
-      node = node.asSelector(
-        this.reduce(
-          this.parser.selector(node.params!.toString() || ''),
-        ) as Ast.SelectorList,
-      );
+      node.selector = this.parser.selector(node.params!.toString() || '');
+      node.params = undefined;
     }
-    return node;
   }
 
-  reduceEachRule(node: AtRule) {
-    const parsed = this.reduceChildren(this.parser.eachCondition(node));
-    const first = parsed.first as Ast.ReducedExpression;
+  reduceEachRule({ node, ...api }: Path<AtRule>) {
+    const condition = this.parser.eachCondition(node);
 
-    if (first.type !== 'list' && first.type !== 'map') {
-      throw node.error(`${first} is not iterable`);
+    this.visit(condition);
+
+    const expr = condition.expr as Ast.ReducedExpression;
+
+    if (expr.type !== 'list' && expr.type !== 'map') {
+      throw node.error(`${expr} is not iterable`);
     }
 
-    const nodes = [] as ChildNode[];
-    for (const item of first) {
+    const nodes = [] as AnyNode[];
+    const body = postcss.root({ nodes: node.nodes });
+
+    for (const item of expr) {
       this.scope((scope) => {
-        parsed.variables.forEach((v, i) => {
-          scope.set(
-            v.clone(),
+        condition.variables.forEach((v, i) => {
+          scope.setVariable(
+            v.name,
             'nodes' in item
               ? item.nodes?.[i] ?? new Ast.NullLiteral()
               : i === 0
@@ -374,25 +410,27 @@ export class Reducer {
           );
         });
 
-        const iter = node.clone({ parent: node.parent });
+        const iter = this.visit(body.clone()) as any;
 
-        nodes.push(...iter.nodes!.map((t) => this.reduce(t) as ChildNode));
+        nodes.push(...iter.nodes);
       });
     }
 
-    node.replaceWith(...nodes);
+    api.replaceWith(nodes);
+    api.skip();
   }
 
-  reduceIfRule(node: AtRule) {
+  reduceIfRule({ node }: Path<AtRule>) {
     let current: ChildNode | undefined = node;
     let result = false;
 
     while (current && current.type === 'atrule') {
-      const ifRule = current; // hints to TS who can't tell scope cb execute immediately
+      const ifRule = current; // hints to TS who can't tell scope cb executes immediately
+
       const next = fixElseIfAtRule(current.next());
 
       if (!result && current.name.endsWith('if')) {
-        const condition = this.reduce(
+        const condition = this.visit(
           this.parser.expression(current),
         ) as Ast.Value;
 
@@ -400,14 +438,16 @@ export class Reducer {
 
         if (result) {
           this.scope(() => {
-            this.reducePostCssNodes(ifRule);
+            const { nodes } = this.visit(detach(ifRule)) as any;
 
-            ifRule.replaceWith(...ifRule.nodes!);
+            ifRule.replaceWith(nodes);
           });
         }
       } else if (!result && current.name === 'else') {
         this.scope(() => {
-          ifRule!.replaceWith(...ifRule.nodes!.map((t) => this.reduce(t)));
+          const { nodes } = this.visit(detach(ifRule)) as any;
+
+          ifRule!.replaceWith(nodes);
         });
       }
 
@@ -422,38 +462,38 @@ export class Reducer {
     }
   }
 
-  reduceFunction(node: Ast.Function) {
-    const fn = this.currentScope.get(node.name);
+  reduceMixinDeclaration(path: Path<AtRule>) {
+    const callable = this.parser.callable(path.node);
+
+    this.currentScope.setMixin(callable.name.value, callable);
+
+    path.remove();
+  }
+
+  reduceInclude(path: Path<AtRule>) {
+    const callable = this.parser.callable(path.node);
+
+    this.currentScope.setMixin(callable.name.value, callable);
+
+    path.remove();
+  }
+
+  reduceCallExpression(path: Path<Ast.CallExpression>) {
+    const fn = this.currentScope.getFunction(path.node.callee);
+
+    path.visitChildren();
 
     // assume a css function grumble
-    if (!fn) {
-      return node;
+    if (fn) {
+      path.replaceWith(fn.fn(...path.node.args));
     }
-
-    return fn.fn(...this.reduceChildren(node).nodes);
   }
 
-  reducePostCssNodes(node: postcss.Container) {
-    node.each((child) => {
-      this.reduce(child as any);
-    });
-  }
+  reduceUnaryExpression({ node, ...api }: Path<Ast.UnaryExpression>) {
+    api.visitChildren();
 
-  reduceChildren<T extends Ast.Container>(node: T): T {
-    const result = [] as any[];
-
-    for (const child of node.nodes!) {
-      const next = this.reduce(child as any);
-      if (next) result.push(next);
-    }
-
-    node.nodes = result;
-    return node;
-  }
-
-  reduceUnaryExpression(node: Ast.UnaryExpression) {
     const { inCalc } = this;
-    let argument = this.reduce(node.argument) as Ast.Value;
+    let argument = node.argument as Ast.Value;
 
     if (!math.isMathTerm(argument)) {
       throw new Error(`${argument} is not a number`);
@@ -465,7 +505,8 @@ export class Reducer {
           `Only arithmetic is allowed in a CSS calc() function not \`${node}\` which would produce a Boolean, not a number`,
         );
 
-      return new Ast.BooleanLiteral(!Ast.isFalsey(argument));
+      api.replaceWith(new Ast.BooleanLiteral(!Ast.isFalsey(argument)));
+      return;
     }
 
     if (node.operator === '-') {
@@ -480,25 +521,25 @@ export class Reducer {
         );
     }
 
-    return argument;
+    api.replaceWith(argument);
   }
 
-  reduceBinaryExpression(node: Ast.BinaryExpression) {
+  reduceBinaryExpression({ node, ...api }: Path<Ast.BinaryExpression>) {
+    const original = node.toString();
+
+    api.visitChildren();
+
     const { inCalc } = this;
 
-    const left = this.reduce(node.left) as ResolvedValue;
-    const right = this.reduce(node.right) as ResolvedValue;
+    const left = node.left as ResolvedValue;
+    const right = node.right as ResolvedValue;
+
     const op = node.operator.value;
 
     const evalError = (reason: string) => {
-      const original = node.toString();
-      const resolved = new Ast.BinaryExpression(
-        left,
-        node.operator.clone(),
-        right,
-      ).toString();
+      const resolved = node.toString();
       return new Error(
-        `Cannot evaluate ${node}${
+        `Cannot evaluate ${original}${
           original !== resolved ? ` (evaluated as: ${resolved})` : ''
         }. ${reason}`,
       );

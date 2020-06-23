@@ -2,10 +2,10 @@
 
 import Parser from '..';
 import {
-  Function as AstFunction,
   BinaryExpression,
   BooleanLiteral,
   Calc,
+  CallExpression,
   DOUBLE,
   EachCondition,
   Ident,
@@ -18,7 +18,7 @@ import {
   Numeric,
   Operator,
   Operators,
-  ParentSelector,
+  ParentSelectorReference,
   Range,
   SINGLE,
   StringLiteral,
@@ -107,14 +107,14 @@ describe('parser: values', () => {
     it.each([
       [
         'rgba(1,2,3)',
-        new AstFunction(
+        new CallExpression(
           new Ident('rgba'),
           new List([new Numeric(1), new Numeric(2), new Numeric(3)], comma),
         ),
       ],
       [
         'color.rgba(1 2 3)',
-        new AstFunction(
+        new CallExpression(
           new Ident('rgba', 'color'),
           new List([new Numeric(1), new Numeric(2), new Numeric(3)], space),
         ),
@@ -158,7 +158,10 @@ describe('parser: values', () => {
         'calc(var(--foo) * 1)',
         new Calc(
           new BinaryExpression(
-            new AstFunction(new Ident('var'), new List([new Ident('--foo')])),
+            new CallExpression(
+              new Ident('var'),
+              new List([new Ident('--foo')]),
+            ),
             op('*'),
             new Numeric(1),
           ),
@@ -246,7 +249,7 @@ describe('parser: values', () => {
             new BinaryExpression(
               new BinaryExpression(new Numeric(1), op('-'), new Numeric(3)),
               op('/'),
-              new AstFunction(
+              new CallExpression(
                 new Ident('abs', 'math'),
                 new List([new Numeric(-1)]),
               ),
@@ -288,7 +291,10 @@ describe('parser: values', () => {
         '$bar$foo',
         new List([new Variable('bar'), new Variable('foo')], space),
       ],
-      ['$bar&', new List([new Variable('bar'), new ParentSelector()], space)],
+      [
+        '$bar&',
+        new List([new Variable('bar'), new ParentSelectorReference()], space),
+      ],
       [
         `bar
       foo`,
@@ -416,7 +422,7 @@ describe('parser: values', () => {
 
       [
         'foo(1px + #{20rem - $baz})',
-        new AstFunction(
+        new CallExpression(
           new Ident('foo'),
           new List([
             new BinaryExpression(

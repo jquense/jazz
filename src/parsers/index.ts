@@ -107,6 +107,15 @@ class Parser {
     );
   }
 
+  callable(node: postcss.AtRule): Ast.CallableDeclaration {
+    const callable = this.parse(node.params, {
+      startRule: 'callable_declaration',
+    }) as Ast.CallableDeclaration;
+
+    callable.body = node.nodes!.map((n) => n.remove());
+    return callable;
+  }
+
   selector(selector: string) {
     return this.parse(selector, { startRule: 'selector' }) as Ast.SelectorList;
   }

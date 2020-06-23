@@ -51,7 +51,7 @@ describe('Compiler', () => {
         color: red;
       }
 
-      & > .m_child {
+      .m_foo > .m_child {
         color: red
       }
     `);
