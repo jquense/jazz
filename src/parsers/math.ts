@@ -2,7 +2,6 @@ import {
   ArthimeticOperators,
   BinaryExpression,
   BooleanLiteral,
-  Calc,
   CallExpression,
   Expression,
   MathCallExpression,
@@ -10,22 +9,19 @@ import {
   Operator,
   Operators,
   Value,
+  isCalc,
   isStringish,
 } from './Ast';
 
-export type Term = Numeric | Calc | MathCallExpression | CallExpression;
+export type Term = Numeric | MathCallExpression | CallExpression;
 
 export const isMathTerm = (term: Expression): term is Term =>
   term.type === 'numeric' ||
-  term.type === 'calc' ||
   term.type === 'math-call-expression' ||
   term.type === 'call-expression';
 
-export const isCalc = (term: Expression): term is MathCallExpression =>
-  term.type === 'math-call-expression' && term.callee.value === 'calc';
-
 export const isResolvableToNumeric = (fn: Value): boolean =>
-  fn.type === 'calc' || fn.type === 'math-call-expression';
+  fn.type === 'math-call-expression';
 
 export const isArithmeticOperator = (
   op: Operators,
@@ -61,9 +57,13 @@ export function add(a: Term, b: Term, mustReduce = false) {
   assertValidMathCallExpression(a);
   assertValidMathCallExpression(b);
 
-  if (a.type === 'calc') a = a.expression as any;
-  if (b.type === 'calc') b = b.expression as any;
-  return new Calc(new BinaryExpression(a, new Operator('+'), b));
+  if (isCalc(a)) a = a.args.first as any;
+  if (isCalc(b)) b = b.args.first as any;
+
+  return new MathCallExpression(
+    'calc',
+    new BinaryExpression(a, new Operator('+'), b),
+  );
 }
 
 export function subtract(a: Term, b: Term, mustReduce = false) {
@@ -79,9 +79,12 @@ export function subtract(a: Term, b: Term, mustReduce = false) {
   assertValidMathCallExpression(a);
   assertValidMathCallExpression(b);
 
-  if (a.type === 'calc') a = a.expression as any;
-  if (b.type === 'calc') b = b.expression as any;
-  return new Calc(new BinaryExpression(a, new Operator('-'), b));
+  if (isCalc(a)) a = a.args.first as any;
+  if (isCalc(b)) b = b.args.first as any;
+  return new MathCallExpression(
+    'calc',
+    new BinaryExpression(a, new Operator('-'), b),
+  );
 }
 
 export function multiply(a: Term, b: Term, mustReduce = false) {
@@ -107,9 +110,12 @@ export function multiply(a: Term, b: Term, mustReduce = false) {
   assertValidMathCallExpression(a);
   assertValidMathCallExpression(b);
 
-  if (a.type === 'calc') a = a.expression as any;
-  if (b.type === 'calc') b = b.expression as any;
-  return new Calc(new BinaryExpression(a, new Operator('*'), b));
+  if (isCalc(a)) a = a.args.first as any;
+  if (isCalc(b)) b = b.args.first as any;
+  return new MathCallExpression(
+    'calc',
+    new BinaryExpression(a, new Operator('*'), b),
+  );
 }
 
 export function divide(a: Term, b: Term, mustReduce = false) {
@@ -128,9 +134,12 @@ export function divide(a: Term, b: Term, mustReduce = false) {
   assertValidMathCallExpression(a);
   assertValidMathCallExpression(b);
 
-  if (a.type === 'calc') a = a.expression as any;
-  if (b.type === 'calc') b = b.expression as any;
-  return new Calc(new BinaryExpression(a, new Operator('/'), b));
+  if (isCalc(a)) a = a.args.first as any;
+  if (isCalc(b)) b = b.args.first as any;
+  return new MathCallExpression(
+    'calc',
+    new BinaryExpression(a, new Operator('/'), b),
+  );
 }
 
 export function pow(a: Term, b: Term) {
@@ -222,7 +231,9 @@ export function max(terms: Term[], mustReduce = false) {
 }
 
 export function clamp([minVal, val, maxVal]: Term[], mustReduce = false) {
-  return max([min([maxVal, val], mustReduce), minVal], mustReduce);
+  const result = max([min([maxVal, val], mustReduce), minVal], mustReduce);
+  if (result.type === 'numeric') return result;
+  return new MathCallExpression('clamp', [minVal, val, maxVal]);
 }
 
 export function gt(a: Numeric, b: Numeric) {

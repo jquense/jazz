@@ -1,8 +1,9 @@
 import type { LazyResult, ProcessOptions, Result, Root } from 'postcss';
 
-import * as Ast from './parsers/Ast';
-import Scope, { Member } from './utils/Scope';
+import Scope from './utils/Scope';
 import { EXPORTS } from './utils/Symbols';
+
+export type JsMap<K, V> = Map<K, V>;
 
 export interface Value {
   name?: string;

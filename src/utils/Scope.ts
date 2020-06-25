@@ -1,4 +1,4 @@
-import { AtRule } from 'postcss';
+import { AtRule, Root } from 'postcss';
 
 import * as Ast from '../parsers/Ast';
 import { ParsedRule } from './visitor';
@@ -13,6 +13,7 @@ export type FunctionMember = {
   type: 'function';
   source?: string;
   fn: (...args: Ast.Expression[]) => Ast.ReducedExpression;
+  node?: Ast.CallableDeclaration;
 };
 
 export type MixinMember = {
@@ -21,17 +22,17 @@ export type MixinMember = {
   node: Ast.CallableDeclaration;
 };
 
-export type ParentSelectorMember = {
-  type: 'parent-selector';
+export type Content = {
+  type: 'mixin';
   source?: string;
-  node: Ast.MixinDeclaration;
+  node: Ast.CallableDeclaration;
 };
 
-export type Member =
-  | VariableMember
-  | FunctionMember
-  | MixinMember
-  | ParentSelectorMember;
+export type ParentSelectorMember = Ast.List<Ast.List>;
+export type CurrentRuleMember = ParsedRule;
+export type CurrentArgumentList = Ast.ArgumentList;
+
+export type Member = VariableMember | FunctionMember | MixinMember;
 
 const HOIST = Symbol('children to hoist');
 
@@ -45,7 +46,11 @@ export default class Scope {
 
   parent: Scope | null = null;
 
-  private rule: ParsedRule | null | null = null;
+  private _rule: ParsedRule | null = null;
+
+  private _arguments: Ast.ArgumentList | null = null;
+
+  private _content: Root | null = null;
 
   constructor(opts: { members?: Map<string, Member> } = {}) {
     if (opts) {
@@ -53,12 +58,28 @@ export default class Scope {
     }
   }
 
+  get arguments() {
+    return this._arguments || this.parent?._arguments || null;
+  }
+
+  set arguments(args: Ast.ArgumentList | null) {
+    this._arguments = args;
+  }
+
+  get contentBlock() {
+    return this._content || this.parent?._content || null;
+  }
+
+  set contentBlock(content: Root | null) {
+    this._content = content;
+  }
+
   get currentRule() {
-    return this.rule ?? this.parent?.currentRule ?? null;
+    return this._rule || this.parent?.currentRule || null;
   }
 
   set currentRule(rule: ParsedRule | null) {
-    this.rule = rule;
+    this._rule = rule;
   }
 
   createChildScope() {
@@ -75,8 +96,12 @@ export default class Scope {
 
   from(scope: Scope, namespace?: string) {
     for (const [key, value] of scope.members.entries()) {
-      // if (value.type === 'variable')
-      this.set(namespace ? `${namespace}.${key}` : key, { ...value });
+      if (
+        value.type === 'variable' ||
+        value.type === 'function' ||
+        value.type === 'mixin'
+      )
+        this.set(namespace ? `${namespace}.${key}` : key, { ...value });
     }
 
     return this;
@@ -86,27 +111,32 @@ export default class Scope {
   //   this.rule![HOIST].add(node);
   // }
 
-  getWithScope(ident: Identifier): [Member, Scope] | undefined {
+  getWithScope(ident: Identifier): [Member, Scope] | [null, null] {
     const member = this.members.get(ident.toString());
 
-    return member ? [member, this] : this.parent?.getWithScope(ident);
+    return (
+      (member ? [member, this] : this.parent?.getWithScope(ident)) || [
+        null,
+        null,
+      ]
+    );
   }
 
-  get(ident: Identifier): Member | undefined {
+  get(ident: Identifier | string): Member | undefined {
     return this.members.get(ident.toString()) ?? this.parent?.get(ident);
   }
 
-  getVariable(ident: Ast.Variable) {
+  getVariable(ident: Ast.Variable | string) {
     const member = this.get(ident);
     return member?.type === 'variable' ? member : undefined;
   }
 
-  getFunction(ident: Ast.Ident) {
+  getFunction(ident: Ast.Ident | string) {
     const member = this.get(ident);
     return member?.type === 'function' ? member : undefined;
   }
 
-  getMixin(ident: Ast.Variable) {
+  getMixin(ident: Ast.Ident | string) {
     const member = this.get(ident);
     return member?.type === 'mixin' ? member : undefined;
   }
@@ -122,8 +152,12 @@ export default class Scope {
     return true;
   }
 
-  setVariable(name: string, node: Ast.ReducedExpression, source?: string) {
-    return this.set(new Ast.Variable(name), {
+  setVariable(
+    name: Ast.Variable | string,
+    node: Ast.ReducedExpression,
+    source?: string,
+  ) {
+    return this.set(typeof name === 'string' ? new Ast.Variable(name) : name, {
       type: 'variable',
       node,
       source,

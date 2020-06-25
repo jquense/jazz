@@ -1,9 +1,12 @@
+/* eslint-disable no-prototype-builtins */
+/* eslint-disable no-restricted-syntax */
 /* eslint-disable @typescript-eslint/no-use-before-define */
 /* eslint-disable max-classes-per-file */
 
 import { channel, isValid } from 'khroma';
 import { ChildNode } from 'postcss';
 
+import { JsMap } from '../types';
 import interleave from '../utils/interleave';
 import conversions from '../utils/unit-conversions';
 import { IFileRange } from './parser';
@@ -11,15 +14,26 @@ import { IFileRange } from './parser';
 const tag = `@@typeof/Node`;
 const SOURCE = Symbol.for('node source');
 
+export type MaybeArray<T> = T | T[];
+
+const toArray = <T>(n?: MaybeArray<T>): T[] =>
+  n == null ? [] : ([] as T[]).concat(n);
+
 function cloneNode(obj: Node, parent?: Node) {
+  // if (typeof obj.clone === 'function') return obj.clone();
   // @ts-ignore
   const cloned = obj.constructor ? new obj.constructor() : Object.create(null);
 
-  for (let [key, value] of Object.entries(obj)) {
+  for (const key in obj) {
+    if (!obj.hasOwnProperty(key)) continue;
+    let value = (obj as any)[key];
+
     const type = typeof value;
 
     if (key === 'parent' && type === 'object') {
       if (parent) cloned[key] = parent;
+    } else if (key === 'source') {
+      cloned[key] = value;
     } else if (Array.isArray(value)) {
       cloned[key] = value.map((j) => cloneNode(j, cloned));
     } else {
@@ -38,8 +52,6 @@ let MATH_FUNCTION_CONTEXT = false;
 export abstract class Node<T extends string = any> {
   abstract type: T;
 
-  parent: Container | null = null;
-
   [Symbol.hasInstance](inst: any) {
     return inst && inst[Symbol.for(tag)] === true;
   }
@@ -47,6 +59,10 @@ export abstract class Node<T extends string = any> {
   [SOURCE]?: IFileRange & {
     input: string;
   };
+
+  // toList<T extends Expression = Expression>(sep?: Separator) {
+  //   return new List([(this as any) as T], sep);
+  // }
 
   clone(): this {
     const cloned = cloneNode(this);
@@ -104,6 +120,9 @@ Node.prototype[Symbol.for(tag)] = true;
 
 export const isNode = (node: any): node is Node => node instanceof Node;
 
+export const isCalc = (term: Expression): term is MathCallExpression =>
+  term.type === 'math-call-expression' && term.callee.value === 'calc';
+
 export const isFalsey = (node: Value): node is BooleanLiteral | NullLiteral =>
   node.type === 'null' || (node.type === 'boolean' && node.value === false);
 
@@ -130,14 +149,14 @@ export type Value =
   | StringTemplate
   | ParentSelectorReference
   | Url
-  | Calc
   | MathCallExpression
   | CallExpression
   | Variable
   | InterpolatedIdent
   | Ident
   | Map
-  | List;
+  | List
+  | ArgumentList;
 
 export type Expression =
   | Value
@@ -148,7 +167,17 @@ export type Expression =
 
 export type Block = EachCondition;
 
-export type Nodes = Expression | Block | Selector;
+export type Argument = Expression | KeywordArgument | SpreadArgument;
+
+export type Nodes =
+  | Expression
+  | Block
+  | Selector
+  | CallableDeclaration
+  | Parameter
+  | RestParameter
+  | ParameterList
+  | Argument;
 
 export type ReducedExpression =
   | Exclude<Expression, Range | Variable | StringTemplate | List>
@@ -173,10 +202,10 @@ export abstract class Container<T extends Node = Node> extends Node {
     return this.nodes[this.nodes.length - 1];
   }
 
-  constructor(nodes?: T | readonly T[]) {
+  constructor(nodes?: MaybeArray<T>) {
     super();
 
-    if (nodes) this.nodes = ([] as T[]).concat(nodes);
+    this.nodes = toArray(nodes);
   }
 
   toString(): string {
@@ -545,7 +574,7 @@ export class List<T extends Expression = Expression> extends Container<T> {
   }
 
   constructor(
-    nodes: readonly T[],
+    nodes: T[],
     public separator?: Separator,
     public brackets = false,
   ) {
@@ -600,6 +629,67 @@ export class List<T extends Expression = Expression> extends Container<T> {
   }
 }
 
+export class ArgumentList extends Container<Expression> {
+  type = 'argument-list' as const;
+
+  // *[Symbol.iterator]() {
+  //   for (const child of this.nodes.values()) yield child;
+  // }
+
+  constructor(
+    positionals: MaybeArray<Expression> = [],
+    public keywords: Map<StringLiteral | Ident, Expression> = new Map([]),
+    public spreads: SpreadArgument[] = [],
+  ) {
+    super(positionals);
+  }
+
+  static fromTokens(rawArgs: Argument[]) {
+    const args = [] as Expression[];
+    const kwargs = [] as (readonly [Ident, Expression])[];
+    const spreads: SpreadArgument[] = [];
+    let lastWasKwarg = false;
+
+    for (const item of rawArgs) {
+      if (spreads.length === 2) {
+        throw new SyntaxError('Expected no more arguments');
+      }
+      // if (
+      //   item.type !== 'spread' &&
+      //   item.type !== 'keyword-argument' &&
+      //   spreads.length
+      // ) {
+      //   throw new SyntaxError(
+      //     'Only keyword arguments can follow an argument spread',
+      //   );
+      // }
+
+      if (item.type === 'keyword-argument') {
+        lastWasKwarg = true;
+        kwargs.push(item.toEntry());
+      } else if (item.type === 'spread') {
+        spreads.push(item);
+      } else {
+        if (lastWasKwarg) {
+          throw new SyntaxError(
+            'Positional arguments cannot follow keyword arguments',
+          );
+        }
+        args.push(item);
+      }
+    }
+
+    return new ArgumentList(args, new Map(kwargs as any), spreads);
+  }
+
+  toString(): string {
+    const positionals = stringifyList(this.nodes, ',');
+    const kwargs = this.keywords.toString().slice(1, -1);
+
+    return `${positionals}${kwargs ? `, ${kwargs}` : ''}`;
+  }
+}
+
 export class Map<
   K extends Expression = Expression,
   V extends Expression = Expression
@@ -607,15 +697,46 @@ export class Map<
   type = 'map' as const;
 
   *[Symbol.iterator]() {
-    for (const child of this.nodes.values()) yield child;
+    yield* this.entries();
   }
 
   constructor(properties: readonly [K, V][]) {
-    super(properties.map((pair) => new List(pair, ' ')));
+    super(properties?.map((pair) => new List(pair, ' ')));
   }
 
   toString() {
     return `(${this.nodes.map((n) => `${n.first}: ${n.last}`).join(',')})`;
+  }
+
+  *keys() {
+    for (const [key] of this.nodes) {
+      yield key as K;
+    }
+  }
+
+  *values() {
+    for (const [, value] of this.nodes) {
+      yield value as V;
+    }
+  }
+
+  *entries() {
+    for (const entry of this.nodes) {
+      yield entry as List<K | V> & [K, V];
+    }
+  }
+
+  toMap(): JsMap<K, V>;
+
+  toMap<T, R>(map: (entry: [K, V]) => [T, R]): JsMap<T, R>;
+
+  toMap<T, R>(map?: (entry: [K, V]) => [T, R]) {
+    return new global.Map<T, R>(
+      this.nodes.map((n) => {
+        const entry = n.toArray() as any;
+        return map ? map(entry) : entry;
+      }),
+    );
   }
 
   equalTo(other: Map): boolean {
@@ -630,50 +751,56 @@ export class Map<
 // Functions
 // ----------------------------------------
 
-export abstract class BaseFunction extends Node {
-  args: Expression[];
+export abstract class BaseCallExpression extends Node {
+  args: ArgumentList;
 
-  constructor(public callee: Ident, args: Expression | Expression[]) {
+  constructor(callee: Ident, args: MaybeArray<Expression>);
+
+  constructor(callee: Ident, args: ArgumentList);
+
+  constructor(
+    public callee: Ident,
+    args: MaybeArray<Expression> | ArgumentList,
+  ) {
     super();
 
-    this.args = ([] as Expression[]).concat(args);
+    if (Array.isArray(args) || args?.type !== 'argument-list') {
+      args = new ArgumentList(args);
+    }
+
+    this.args = args;
   }
 
   get isVar() {
     return (
       this.callee.toString() === 'var' &&
-      this.args[0].type === 'ident' &&
-      this.args[0].isCustomProperty
+      this.args.first?.type === 'ident' &&
+      this.args.first?.isCustomProperty
     );
   }
 
   toString(): string {
-    return `${this.callee}(${stringifyList(this.args, ',')})`;
+    return `${this.callee}(${this.args})`;
   }
 }
 
-export class CallExpression extends BaseFunction {
+export class CallExpression extends BaseCallExpression {
   type = 'call-expression' as const;
-
-  constructor(callee: Ident, args: Expression) {
-    super(
-      callee,
-      args.type === 'list' && (args.separator === ',' || !args.separator)
-        ? (args.nodes as any)
-        : args,
-    );
-  }
 }
 
-export class MathCallExpression extends BaseFunction {
+export class MathCallExpression extends BaseCallExpression {
   type = 'math-call-expression' as const;
 
-  constructor(callee: 'clamp' | 'min' | 'max', params: Expression[]) {
+  constructor(
+    callee: 'calc' | 'clamp' | 'min' | 'max',
+    args: Expression | Expression[],
+  ) {
+    super(new Ident(callee), args);
+
     // unwrap nested calcs
-    // ??? needed
-    super(
-      new Ident(callee),
-      params?.map((p) => (p.type === 'calc' ? p.expression : p)),
+    // remvoes unneeded parens around calc expressions, should have a better method than this tho
+    this.args.nodes = this.args.nodes.map((p) =>
+      isCalc(p) ? p.args.first : p,
     );
   }
 
@@ -685,23 +812,13 @@ export class MathCallExpression extends BaseFunction {
       MATH_FUNCTION_CONTEXT = false;
     }
   }
-}
-
-export class Calc extends Node {
-  type = 'calc' as const;
-
-  constructor(public expression: Expression) {
-    super();
-  }
 
   toString(): string {
-    if (MATH_FUNCTION_CONTEXT) {
-      return `(${this.expression.toString()})`;
+    if (MATH_FUNCTION_CONTEXT && isCalc(this)) {
+      return `(${this.args.first})`;
     }
 
-    return MathCallExpression.withContext(
-      () => `calc(${this.expression.toString()})`,
-    );
+    return MathCallExpression.withContext(() => super.toString());
   }
 }
 
@@ -1041,7 +1158,7 @@ export class ParentSelector extends Node {
       const first = nextNodes[0];
       if (first.type !== 'compound-selector') {
         throw parent.error(
-          `Parent ${first.parent} is incompatible with this selector.`,
+          `Parent ${first} is incompatible with this selector.`,
         );
       }
 
@@ -1060,9 +1177,7 @@ export class ParentSelector extends Node {
     const last = nextNodes.pop()!;
 
     if (last.type !== 'compound-selector') {
-      throw parent.error(
-        `Parent ${last.parent} is incompatible with this selector.`,
-      );
+      throw parent.error(`Parent ${last} is incompatible with this selector.`);
     }
 
     if (parent.suffix) {
@@ -1267,19 +1382,102 @@ export class Parameter extends Node {
   }
 }
 
-export class Argument extends Node {
-  type = 'argument' as const;
+export class RestParameter extends Node {
+  type = 'rest' as const;
 
   constructor(public name: Variable) {
     super();
+  }
+
+  toString() {
+    return `${this.name}...`;
+  }
+}
+
+export class ParameterList extends Node {
+  type = 'parameter-list' as const;
+
+  constructor(public params: Parameter[] = [], public rest?: RestParameter) {
+    super();
+  }
+
+  static fromTokens(params: Array<Parameter | RestParameter>) {
+    const nodes = [] as Parameter[];
+    let rest: RestParameter | undefined;
+
+    for (const param of params) {
+      if (param.type === 'parameter') {
+        if (rest) {
+          throw new SyntaxError('Rest parameters must be the last parameter');
+        }
+        nodes.push(param);
+      } else {
+        rest = param;
+      }
+    }
+
+    return new ParameterList(nodes, rest);
+  }
+
+  toString() {
+    const nodes = [...this.params] as any[];
+
+    if (this.rest) nodes.push(this.rest);
+
+    return stringifyList(nodes, ',');
+  }
+
+  verify(numPositionals: number, names: Set<string>) {
+    const usedNames = new Set<string>();
+    for (const [idx, param] of this.params.entries()) {
+      const paramName = `${param.name}`;
+      if (idx < numPositionals) {
+        if (names.has(paramName)) {
+          throw new SyntaxError(
+            `Argument ${param.name} was passed both by position and by name.`,
+          );
+        }
+      } else if (names.has(paramName)) {
+        usedNames.add(paramName);
+      } else if (!param.defaultValue) {
+        throw SyntaxError(`Missing argument ${paramName}.`);
+      }
+    }
+
+    if (this.rest) return;
+
+    if (usedNames.size < names.size) {
+      const unknown = new Set(names);
+      for (const elem of usedNames) unknown.delete(elem);
+
+      throw new SyntaxError(
+        `No argument(s) named ${Array.from(unknown).join(', ')}`,
+      );
+    }
+  }
+}
+
+export class SpreadArgument extends Node {
+  type = 'spread' as const;
+
+  constructor(public value: Expression) {
+    super();
+  }
+
+  toString() {
+    return `${this.value}...`;
   }
 }
 
 export class KeywordArgument extends Node {
   type = 'keyword-argument' as const;
 
-  constructor(public name: Variable, public value?: Expression) {
+  constructor(public name: Variable, public value: Expression) {
     super();
+  }
+
+  toEntry() {
+    return [new Ident(this.name.name), this.value] as const;
   }
 }
 
@@ -1288,7 +1486,7 @@ export class CallableDeclaration extends Node {
 
   constructor(
     public name: Ident,
-    public params: Parameter[] = [],
+    public params: ParameterList,
     public body: ChildNode[] = [],
   ) {
     super();

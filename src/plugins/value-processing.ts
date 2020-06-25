@@ -30,7 +30,7 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
   const { files, from } = opts;
   const file = files[from!];
 
-  const parser = Parser.get(css);
+  const parser = Parser.get(css, opts);
 
   const rootScope = file.scope || (file.scope = new Scope());
 

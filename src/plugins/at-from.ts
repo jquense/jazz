@@ -51,7 +51,7 @@ export function transformAtFrom(
 }
 
 const importsPlugin: PostcssPlugin = (css, { opts }) => {
-  const parser = Parser.get(css);
+  const parser = Parser.get(css, opts);
 
   css.walkAtRules('from', (rule) => {
     transformAtFrom(rule, opts, parser);

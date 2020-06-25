@@ -1,15 +1,20 @@
 /* eslint-disable no-nested-ternary */
 /* eslint-disable no-loop-func */
 
+import { isUndefined } from 'util';
+
 import postcss, { AtRule, ChildNode } from 'postcss';
 
 import Parser from '../parsers';
 import * as Ast from '../parsers/Ast';
 import * as math from '../parsers/math';
-import Scope from './Scope';
+import * as Interop from './Interop';
+import Scope, { MixinMember } from './Scope';
+import { map } from './itertools';
 import unvendor from './unvendor';
 import Walker, {
   AnyNode,
+  ParsedAtRule,
   ParsedDeclaration,
   ParsedRule,
   Path,
@@ -48,6 +53,9 @@ const detach = (node: postcss.Container) =>
 
 const asComplexNodes = (node: Ast.ComplexSelector | Ast.CompoundSelector) =>
   node.type === 'compound-selector' ? [node] : node.nodes.slice();
+
+const isInclude = (node?: AnyNode) =>
+  node?.type === 'atrule' && node.name === 'include';
 
 function fixElseIfAtRule(rule?: ChildNode) {
   if (rule?.type !== 'atrule') return rule;
@@ -88,11 +96,25 @@ export class Reducer {
     return new Reducer(scope, parser).visit(node);
   }
 
-  scope(fn: (scope: Scope) => void) {
-    this.currentScope = this.currentScope.createChildScope();
+  withScope(fn: (scope: Scope) => void): void;
+
+  withScope(parentScope: Scope, fn: (scope: Scope) => void): void;
+
+  withScope(
+    parentOrfn: Scope | ((scope: Scope) => void),
+    fn?: (scope: Scope) => void,
+  ) {
+    let scope = parentOrfn as Scope;
+
+    if (typeof parentOrfn === 'function' && !fn) {
+      scope = this.currentScope;
+      fn = parentOrfn;
+    }
+
+    this.currentScope = scope.createChildScope();
 
     try {
-      fn(this.currentScope);
+      fn!(this.currentScope);
     } finally {
       this.currentScope = this.currentScope.close()!;
     }
@@ -115,6 +137,29 @@ export class Reducer {
     return atRule;
   }
 
+  // private evaluateParameters(
+  //   callable: Ast.CallableDeclaration,
+  //   args: Ast.ArgumentList,
+  // ) {
+  //   let rest = null;
+  //   const params = [];
+  //   const positionals = args.nodes.slice();
+  //   // const kwargs = args.keywords.toMap(([k, value]) => [String(k), value]);
+
+  //   for (const item of callable.params) {
+  //     const name = item.name.toString();
+  //     if (item.type === 'rest') {
+  //       rest = name;
+  //       continue;
+  //     }
+  //     params.push({ name, defaulted: !!item.defaultValue });
+  //   }
+
+  //   const matched = Interop.matchParameters([params, rest], args);
+
+  //   matched;
+  // }
+
   visit(root: AnyNode) {
     return this.walker.visit(root, {
       rule: this.reduceRule,
@@ -122,10 +167,23 @@ export class Reducer {
       atrule: this.reduceAtRule,
 
       range: this.reduceRange,
-      'call-expression': this.reduceCallExpression,
+
+      interpolation(path: Path<Ast.Interpolation>) {
+        path.visitChildren();
+        return path.node.first;
+      },
       variable(path: Path<Ast.Variable>) {
         const parentType = path.parent?.type;
-        if (parentType === 'decl' || parentType === 'each-condition') return;
+
+        // these are declaration contexts
+        // TODO separate AST type
+        if (
+          parentType === 'decl' ||
+          parentType === 'each-condition' ||
+          parentType === 'parameter' ||
+          parentType === 'keyword-argument'
+        )
+          return;
 
         const variable = this.currentScope.getVariable(path.node);
 
@@ -135,6 +193,8 @@ export class Reducer {
 
         path.replaceWith(variable.node.clone());
       },
+      'argument-list': this.reduceArgumentList,
+
       'parent-selector-reference': function $(
         path: Path<Ast.ParentSelectorReference>,
       ) {
@@ -143,36 +203,8 @@ export class Reducer {
         path.replaceWith(parent ? parent.toList() : new Ast.NullLiteral());
       },
 
-      interpolation(path: Path<Ast.Interpolation>) {
-        path.visitChildren();
-        return path.node.first;
-      },
-      calc({ node, visitChildren, replaceWith }: Path<Ast.Calc>) {
-        try {
-          this.inCalc++;
-          visitChildren();
-
-          if (
-            this.inCalc > 1 ||
-            node.expression.type === 'calc' ||
-            node.expression.type === 'numeric'
-          ) {
-            replaceWith(node.expression);
-          }
-        } finally {
-          this.inCalc--;
-        }
-      },
-      'math-call-expression': (path: Path<Ast.MathCallExpression>) => {
-        const { node } = path;
-
-        path.visitChildren();
-
-        path.replaceWith(
-          // @ts-ignore
-          math[node.callee.value](node.args as math.Term[], !this.inCalc),
-        );
-      },
+      'call-expression': this.reduceCallExpression,
+      'math-call-expression': this.reduceMathCallExpression,
       'unary-expression': this.reduceUnaryExpression,
       'binary-expression': this.reduceBinaryExpression,
 
@@ -296,7 +328,7 @@ export class Reducer {
 
     api.visit('selectorNodes');
 
-    this.scope((scope) => {
+    this.withScope((scope) => {
       scope.currentRule = node;
 
       api.visitChildren();
@@ -327,7 +359,7 @@ export class Reducer {
     });
   }
 
-  reduceAtRule(path: Path<AtRule>) {
+  reduceAtRule(path: Path<ParsedAtRule>) {
     const { node } = path;
 
     if (this.toHoist.has(node)) {
@@ -336,9 +368,10 @@ export class Reducer {
 
     if (node.name === 'if') return this.reduceIfRule(path);
     if (node.name === 'each') return this.reduceEachRule(path);
-    if (node.name === 'mixin') return this.reduceMixinDeclaration(path);
+    if (node.name === 'mixin') return this.reduceMixinRule(path);
+    if (node.name === 'include') return this.reduceIncludeRule(path);
 
-    return this.scope(() => path.visitChildren());
+    return this.withScope(() => path.visitChildren());
   }
 
   reduceDeclaration(path: Path<ParsedDeclaration>) {
@@ -398,7 +431,7 @@ export class Reducer {
     const body = postcss.root({ nodes: node.nodes });
 
     for (const item of expr) {
-      this.scope((scope) => {
+      this.withScope((scope) => {
         condition.variables.forEach((v, i) => {
           scope.setVariable(
             v.name,
@@ -437,14 +470,14 @@ export class Reducer {
         result = Ast.isTruthy(condition);
 
         if (result) {
-          this.scope(() => {
+          this.withScope(() => {
             const { nodes } = this.visit(detach(ifRule)) as any;
 
             ifRule.replaceWith(nodes);
           });
         }
       } else if (!result && current.name === 'else') {
-        this.scope(() => {
+        this.withScope(() => {
           const { nodes } = this.visit(detach(ifRule)) as any;
 
           ifRule!.replaceWith(nodes);
@@ -462,7 +495,7 @@ export class Reducer {
     }
   }
 
-  reduceMixinDeclaration(path: Path<AtRule>) {
+  reduceMixinRule(path: Path<AtRule>) {
     const callable = this.parser.callable(path.node);
 
     this.currentScope.setMixin(callable.name.value, callable);
@@ -470,55 +503,96 @@ export class Reducer {
     path.remove();
   }
 
-  reduceInclude(path: Path<AtRule>) {
-    const callable = this.parser.callable(path.node);
+  reduceIncludeRule(path: Path<ParsedAtRule<Ast.CallExpression>>) {
+    const { node } = path;
+    node.paramNodes = this.parser.callExpression(path.node.params);
 
-    this.currentScope.setMixin(callable.name.value, callable);
+    // FIXME: this scope API
+    const [mixin, mixinScope] = this.currentScope.getWithScope(
+      node.paramNodes.callee,
+    ) as [MixinMember, Scope];
+
+    if (!mixin) {
+      throw path.node.error(`Undefined mixin: "${node.paramNodes.callee}"`, {
+        word: String(node.paramNodes.callee),
+      });
+    }
+
+    path.visit('paramNodes');
+
+    // first, evaluate the content of this includes
+    this.withScope((scope) => {
+      path.visit('nodes');
+
+      if (path.node.nodes?.length) {
+        scope.contentBlock = postcss.root({ nodes: path.node.nodes });
+      }
+    });
+
+    // second, evaluate the parameters in the mixin scope
+    this.withScope(mixinScope!, (scope) => {
+      scope.arguments = node.paramNodes!.args;
+
+      const callable = this.visit(mixin.node.clone());
+    });
 
     path.remove();
   }
 
   reduceCallExpression(path: Path<Ast.CallExpression>) {
-    const fn = this.currentScope.getFunction(path.node.callee);
-
     path.visitChildren();
 
-    // assume a css function grumble
-    if (fn) {
-      path.replaceWith(fn.fn(...path.node.args));
+    // if this is a plain function call then evaluate it in place
+    // otherwise let the parent rule handle the mixin
+    if (!isInclude(path.parent)) {
+      const member = this.currentScope.getFunction(path.node.callee);
+
+      // assume a css function grumble
+      if (member) {
+        if (member.fn) {
+          const result = Interop.call(member.fn, path.node.args);
+
+          path.replaceWith(result);
+        }
+      }
+    }
+  }
+
+  reduceMathCallExpression(path: Path<Ast.MathCallExpression>) {
+    const { node } = path;
+
+    try {
+      const isCalcFn = Ast.isCalc(node);
+      const isNestedCalc = !!this.inCalc;
+
+      this.inCalc++;
+
+      path.visitChildren();
+
+      const expr = node.args.first;
+      if (!isCalcFn) {
+        path.replaceWith(
+          // @ts-ignore
+          math[node.callee.value](
+            node.args.nodes as math.Term[],
+            !this.inCalc,
+          ),
+        );
+      } else if (isNestedCalc || Ast.isCalc(expr) || expr.type === 'numeric') {
+        path.replaceWith(expr);
+      }
+    } finally {
+      this.inCalc--;
     }
   }
 
   reduceUnaryExpression({ node, ...api }: Path<Ast.UnaryExpression>) {
     api.visitChildren();
 
-    const { inCalc } = this;
-    let argument = node.argument as Ast.Value;
+    const argument = node.argument as Ast.Value;
 
     if (!math.isMathTerm(argument)) {
       throw new Error(`${argument} is not a number`);
-    }
-
-    if (node.operator === 'not') {
-      if (inCalc)
-        throw new Error(
-          `Only arithmetic is allowed in a CSS calc() function not \`${node}\` which would produce a Boolean, not a number`,
-        );
-
-      api.replaceWith(new Ast.BooleanLiteral(!Ast.isFalsey(argument)));
-      return;
-    }
-
-    if (node.operator === '-') {
-      if (argument.type === 'numeric') argument.value *= -1;
-      else if (this.inCalc)
-        argument = new Ast.Calc(
-          new Ast.BinaryExpression(
-            new Ast.Numeric(-1),
-            new Ast.Operator('*'),
-            argument.type === 'calc' ? argument.expression : argument,
-          ),
-        );
     }
 
     api.replaceWith(argument);
@@ -587,4 +661,87 @@ export class Reducer {
 
     throw new Error(`not implemented: ${op}`);
   }
+
+  reduceArgumentList(path: Path<Ast.ArgumentList>) {
+    path.visitChildren();
+
+    const { node } = path;
+
+    function addKeywords(map: Ast.Map) {
+      for (const entry of map) {
+        if (!Ast.isStringish(entry.first))
+          throw node.error(
+            'Variable keyword argument map must have string keys',
+          );
+        node.keywords.nodes.push(entry);
+      }
+    }
+
+    if (node.spreads.length) {
+      const [spreadA, spreadB] = node.spreads;
+      const a = spreadA.value;
+
+      if (spreadB) {
+        const b = spreadB.value;
+        if (b.type !== 'map') {
+          throw node.error('Variable keyword arguments must be a map');
+        }
+        addKeywords(b);
+      }
+
+      if (a.type === 'map') {
+        addKeywords(a);
+      } else {
+        node.nodes.push(...Ast.List.wrap(a).nodes);
+      }
+    }
+  }
+
+  reduceParameterList(path: Path<Ast.ParameterList>) {
+    const { node } = path;
+    const { nodes: positionals, keywords } = this.currentScope.arguments!;
+
+    const numPositionals = positionals.length;
+    const entries = keywords.entries();
+
+    const kwargs = new Set(map(entries, ([key]) => String(key)));
+
+    for (const [idx, param] of node.params.entries()) {
+      const paramName = `${param.name}`;
+      if (idx < numPositionals) {
+        if (kwargs.has(paramName)) {
+          throw new SyntaxError(
+            `Argument ${param.name} was passed both by position and by name.`,
+          );
+        }
+      } else if (kwargs.has(paramName)) {
+        kwargs.delete(paramName);
+      } else if (!param.defaultValue) {
+        throw SyntaxError(`Missing argument ${paramName}.`);
+      }
+
+      this.currentScope.setVariable(
+        param.name,
+        positionals[idx] as Ast.ReducedExpression,
+      );
+    }
+
+    if (node.rest) {
+      const rest = new Ast.ArgumentList(
+        positionals.slice(node.params.length),
+        // new Ast.Map(map(entries, ())),
+      );
+    }
+
+    if (kwargs.size) {
+      throw new SyntaxError(
+        `No argument(s) named ${Array.from(kwargs).join(', ')}`,
+      );
+    }
+  }
+
+  // reduceCallableDeclaration(path: Path<Ast.CallableDeclaration>) {
+  //   const args = this.currentScope.arguments!;
+
+  // }
 }

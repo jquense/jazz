@@ -77,6 +77,10 @@ export type EachAtRule = postcss.AtRule & {
   conditionNodes: EachCondition;
 };
 
+export type ParsedAtRule<T = any> = postcss.AtRule & {
+  paramNodes?: T;
+};
+
 export type ParsedRule = postcss.Rule & { selectorNodes: SelectorList };
 
 export type ParsedDeclaration = postcss.Declaration & {
@@ -87,7 +91,7 @@ export type ParsedDeclaration = postcss.Declaration & {
 export type AnyNode =
   | Nodes
   | postcss.Root
-  | postcss.AtRule
+  | ParsedAtRule
   | EachAtRule
   | ParsedRule
   | ParsedDeclaration
@@ -163,6 +167,7 @@ export default class Walker<T> {
             !seen.has(value[i])
           ) {
             seen.add(value[i]);
+            // console.log('H', value);
             if (!this.visit(value[i], visitors, root, key, i)) {
               // removed
               i--;

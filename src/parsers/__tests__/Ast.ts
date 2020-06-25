@@ -1,9 +1,9 @@
 import {
   BinaryExpression,
-  Calc,
   DOUBLE,
   Ident,
   List,
+  MathCallExpression,
   Node,
   Numeric,
   Operator,
@@ -134,7 +134,8 @@ describe('AST Nodes', () => {
     it('stringifies ', () => {
       stringify([
         [
-          new Calc(
+          new MathCallExpression(
+            'calc',
             new BinaryExpression(
               new Numeric(1, 'em'),
               new Operator('+'),
@@ -144,7 +145,8 @@ describe('AST Nodes', () => {
           'calc(1em + 3px)',
         ],
         [
-          new Calc(
+          new MathCallExpression(
+            'calc',
             new BinaryExpression(
               new BinaryExpression(
                 new Numeric(1, 'em'),
@@ -158,7 +160,8 @@ describe('AST Nodes', () => {
           'calc(1em + 3px - 1px)',
         ],
         [
-          new Calc(
+          new MathCallExpression(
+            'calc',
             new BinaryExpression(
               new Numeric(1, 'em'),
               new Operator('-'),

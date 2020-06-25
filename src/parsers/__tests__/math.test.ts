@@ -1,11 +1,17 @@
-import { BinaryExpression, Calc, Numeric, Operator } from '../Ast';
+import {
+  BinaryExpression,
+  MathCallExpression,
+  Numeric,
+  Operator,
+} from '../Ast';
 import { calc } from '../helpers';
 import { add } from '../math';
 
 describe('math', () => {
   it('helper should work', () => {
     expect(calc`1em + ${calc`3px - 1px`}`).toEqual(
-      new Calc(
+      new MathCallExpression(
+        'calc',
         new BinaryExpression(
           new Numeric(1, 'em'),
           new Operator('+'),

@@ -25,7 +25,7 @@ describe('function evaluation', () => {
           @from 'math' import * as math;
 
           .foo {
-            width: math.round(math.multiply(1.251px, math.$PI));
+            width: math.round($number: math.multiply(1.251px, math.$PI));
           }
         `,
       ),

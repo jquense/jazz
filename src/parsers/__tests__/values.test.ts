@@ -2,17 +2,20 @@
 
 import Parser from '..';
 import {
+  ArgumentList,
   BinaryExpression,
   BooleanLiteral,
-  Calc,
   CallExpression,
   DOUBLE,
   EachCondition,
+  Expression,
   Ident,
   InterpolatedIdent,
   Interpolation,
+  KeywordArgument,
   List,
   Map,
+  MathCallExpression,
   Node,
   NullLiteral,
   Numeric,
@@ -21,6 +24,7 @@ import {
   ParentSelectorReference,
   Range,
   SINGLE,
+  SpreadArgument,
   StringLiteral,
   StringTemplate,
   UnaryExpression,
@@ -29,6 +33,10 @@ import {
 
 function op(str: Operators) {
   return new Operator(str);
+}
+
+function calc(expr: Expression) {
+  return new MathCallExpression('calc', expr);
 }
 
 const comma = ',' as const;
@@ -49,6 +57,10 @@ describe('parser: values', () => {
 
   function processTestCases(input: string, expected: Node) {
     expect(parse(input)).toEqual(expected);
+  }
+
+  function shouldThrow(input: string, expected: string | RegExp | Error) {
+    expect(() => parse(input)).toThrow(expected);
   }
 
   describe('Numeric', () => {
@@ -103,13 +115,17 @@ describe('parser: values', () => {
     ])('%s', processTestCases);
   });
 
-  describe('functions', () => {
+  describe('call expressions', () => {
     it.each([
+      [`foo()`, new CallExpression(new Ident('foo'), [])],
       [
-        'rgba(1,2,3)',
+        'round($number: 4)',
         new CallExpression(
-          new Ident('rgba'),
-          new List([new Numeric(1), new Numeric(2), new Numeric(3)], comma),
+          new Ident('round'),
+          new ArgumentList(
+            [],
+            new Map([[new Ident('number'), new Numeric(4)]]),
+          ),
         ),
       ],
       [
@@ -119,14 +135,73 @@ describe('parser: values', () => {
           new List([new Numeric(1), new Numeric(2), new Numeric(3)], space),
         ),
       ],
+      [
+        `foo(1, $foo ...)`,
+        new CallExpression(
+          new Ident('foo'),
+
+          new ArgumentList([new Numeric(1)], undefined, [
+            new SpreadArgument(new Variable('foo')),
+          ]),
+        ),
+      ],
+      [
+        `foo(1, 3 + 4..., (2: 4)...)`,
+        new CallExpression(
+          new Ident('foo'),
+          new ArgumentList([new Numeric(1)], undefined, [
+            new SpreadArgument(
+              new BinaryExpression(new Numeric(3), op('+'), new Numeric(4)),
+            ),
+            new SpreadArgument(new Map([[new Numeric(2), new Numeric(4)]])),
+          ]),
+        ),
+      ],
+      [
+        `foo(1, 3 4...)`,
+        new CallExpression(
+          new Ident('foo'),
+          new ArgumentList([new Numeric(1)], undefined, [
+            new SpreadArgument(
+              new List([new Numeric(3), new Numeric(4)], space),
+            ),
+          ]),
+        ),
+      ],
+      [
+        'rgba($r: 1, $g: 2, $b: 3)',
+        new CallExpression(
+          new Ident('rgba'),
+          new ArgumentList(
+            [],
+            new Map([
+              [new Ident('r'), new Numeric(1)],
+              [new Ident('g'), new Numeric(2)],
+              [new Ident('b'), new Numeric(3)],
+            ]),
+          ),
+        ),
+      ],
     ])('%s', processTestCases);
+
+    it.each([
+      [
+        'rgba($r: 1, $g: 2, 3)',
+        'Positional arguments cannot follow keyword arguments',
+      ],
+
+      // [
+      //   'rgba($a..., $b)',
+      //   'A spread argument must be the last argument passed',
+      // ],
+    ])('%s throws: %s', shouldThrow);
   });
 
   describe('calc', () => {
     it.each([
       [
         'calc(2 + 3 * 1)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new Numeric(2),
             op('+'),
@@ -136,7 +211,7 @@ describe('parser: values', () => {
       ],
       [
         'calc(2 ** 3 / 2 ** 1)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new BinaryExpression(new Numeric(2), op('**'), new Numeric(3)),
             op('/'),
@@ -146,7 +221,7 @@ describe('parser: values', () => {
       ],
       [
         'calc(2 ** 3 ** 1)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new Numeric(2),
             op('**'),
@@ -156,12 +231,9 @@ describe('parser: values', () => {
       ],
       [
         'calc(var(--foo) * 1)',
-        new Calc(
+        calc(
           new BinaryExpression(
-            new CallExpression(
-              new Ident('var'),
-              new List([new Ident('--foo')]),
-            ),
+            new CallExpression(new Ident('var'), [new Ident('--foo')]),
             op('*'),
             new Numeric(1),
           ),
@@ -169,7 +241,7 @@ describe('parser: values', () => {
       ],
       [
         'calc(1 + 2 ** 3 ** 1 / 1)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new Numeric(1),
             op('+'),
@@ -187,21 +259,19 @@ describe('parser: values', () => {
       ],
       [
         'calc(1 + 3)',
-        new Calc(
-          new BinaryExpression(new Numeric(1), op('+'), new Numeric(3)),
-        ),
+        calc(new BinaryExpression(new Numeric(1), op('+'), new Numeric(3))),
       ],
 
-      ['calc(1px)', new Calc(new Numeric(1, 'px'))],
+      ['calc(1px)', calc(new Numeric(1, 'px'))],
       [
         'calc(9e+1% % 1)',
-        new Calc(
+        calc(
           new BinaryExpression(new Numeric(90, '%'), op('%'), new Numeric(1)),
         ),
       ],
       [
         'cAlC((1 - 3) / (1 + 4))',
-        new Calc(
+        calc(
           new BinaryExpression(
             new BinaryExpression(new Numeric(1), op('-'), new Numeric(3)),
             op('/'),
@@ -211,7 +281,7 @@ describe('parser: values', () => {
       ],
       [
         'calc((1 - 3) / 1 + 4)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new BinaryExpression(
               new BinaryExpression(new Numeric(1), op('-'), new Numeric(3)),
@@ -225,7 +295,7 @@ describe('parser: values', () => {
       ],
       [
         'calc((1 - math.$pi) / $bar + 4)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new BinaryExpression(
               new BinaryExpression(
@@ -244,15 +314,12 @@ describe('parser: values', () => {
 
       [
         'calc((1 - 3) / math.abs(-1) + 4)',
-        new Calc(
+        calc(
           new BinaryExpression(
             new BinaryExpression(
               new BinaryExpression(new Numeric(1), op('-'), new Numeric(3)),
               op('/'),
-              new CallExpression(
-                new Ident('abs', 'math'),
-                new List([new Numeric(-1)]),
-              ),
+              new CallExpression(new Ident('abs', 'math'), new Numeric(-1)),
             ),
             op('+'),
             new Numeric(4),
@@ -422,22 +489,19 @@ describe('parser: values', () => {
 
       [
         'foo(1px + #{20rem - $baz})',
-        new CallExpression(
-          new Ident('foo'),
-          new List([
-            new BinaryExpression(
-              new Numeric(1, 'px'),
-              op('+'),
-              new Interpolation(
-                new BinaryExpression(
-                  new Numeric(20, 'rem'),
-                  op('-'),
-                  new Variable('baz'),
-                ),
+        new CallExpression(new Ident('foo'), [
+          new BinaryExpression(
+            new Numeric(1, 'px'),
+            op('+'),
+            new Interpolation(
+              new BinaryExpression(
+                new Numeric(20, 'rem'),
+                op('-'),
+                new Variable('baz'),
               ),
             ),
-          ]),
-        ),
+          ),
+        ]),
       ],
       [
         '#{1}px + #{20rem - $baz}',

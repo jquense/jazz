@@ -145,6 +145,10 @@ combinator
   / ">" _ { return ">"; }
 
 
+math_callees "calc(), min(), max(), clamp() function names"
+  = "calc"i / "min"i / "max"i / "clamp"i
+
+
 // AST Nodes
 // ---------------
 
@@ -170,6 +174,9 @@ trailing_slash
 Space
   = __ !(Comma / Slash / in / ':') { return " " }
 
+
+Spread
+  = '...'
 
 UnaryOperator
   = '+'
@@ -236,6 +243,44 @@ NamespacedVariable
   }
 
 
+SpreadArgument
+  = name:ExpressionNoCommaList _ "..." {
+    return init(Ast.SpreadArgument, name);
+  }
+
+Argument
+  = name:Variable _ ":" _ value:ExpressionNoCommaList {
+    return init(Ast.KeywordArgument, name, value);
+  }
+  / SpreadArgument
+  / ExpressionNoCommaList
+
+
+ArgumentList
+  = head:Argument _ tail:(Comma arg:Argument { return arg })* {
+    return init(Ast.ArgumentList.fromTokens([head, ...tail]))
+  }
+
+
+MathSpreadArgument
+  = name:ExpressionWithDivision _ "..." {
+    return init(Ast.SpreadArgument, name);
+  }
+
+MathArgument
+  = name:Variable _ ":" _ value:ExpressionWithDivision {
+    return init(Ast.KeywordArgument, name, value)
+  }
+  / MathSpreadArgument
+  / ExpressionWithDivision
+
+
+MathArgumentList
+  = head:MathArgument _ tail:(Comma arg:MathArgument { return arg })* {
+    return init(Ast.ArgumentList.fromTokens([head, ...tail]))
+  }
+
+
 ParentSelectorReference
   = comment* '&' { return init(Ast.ParentSelectorReference) }
 
@@ -280,11 +325,6 @@ Url
   = comment* uri  { return new Ast.Url(value) }
 
 
-Function  "function"
-  = comment* name:((NamespacedIdent / Ident) !math_function_names) "(" _ args:Expression _ ")" {
-    return init(Ast.CallExpression, name[0], args);
-  }
-
 Interpolation "interpolation"
   = '#{' _ list:Expression _ '}' {
     return init(Ast.Interpolation, list)
@@ -296,25 +336,9 @@ InterpolatedIdent "interpolated identifier"
     return init(Ast.InterpolatedIdent.fromTokens([].concat(head, tail)))
   }
 
-
-math_function_names
-  = "calc"i / "min"i / "max"i / "clamp"i
-
-math_params "list of math expressions"
-  = head:(ExpressionWithDivision) _ tail:(Comma expr:ExpressionWithDivision _ { return expr })* {
-    return [head, ...tail]
-  }
-
-MathCallExpression "calc, min, max, or clamp function"
-  = comment* name:math_function_names "(" _ params:(math_params) _ ")"  {
-    return name.toLowerCase() === 'calc'
-      ? init(Ast.Calc, params[0])
-      : init(Ast.MathCallExpression, name.toLowerCase(), params)
-  }
-
 // comma separated lists not allowed in a Map b/c of parsing ambiguity
 map_property
-  = key:SlashListExpression _ colon _ value:SlashListExpression {
+  = key:ExpressionNoCommaList _ colon _ value:ExpressionNoCommaList {
     return [key, value]
   }
 
@@ -327,6 +351,16 @@ Map
     return init(Ast.Map, properties)
   }
 
+// probably should be in with the expressions but meh
+
+CallExpression
+  = comment* name:math_callees "(" _ args:MathArgumentList? _ ")"  {
+    return init(Ast.MathCallExpression, name.toLowerCase(), args ?? undefined)
+  }
+  / comment* name:(NamespacedIdent / Ident) "(" _ args:ArgumentList? _ ")"{
+    return init(Ast.CallExpression, name, args ?? undefined);
+  }
+
 Value
   = Color
   / Numeric
@@ -335,14 +369,12 @@ Value
   / ParentSelectorReference
   / StringTemplate
   / Url
-  / MathCallExpression
-  / Function
+  / CallExpression
   / NamespacedVariable
   / Variable
   / NamespacedIdent
   / InterpolatedIdent
   / Map
-
 
 PrimaryExpression
   = Value
@@ -356,6 +388,13 @@ PrimaryExpressionWithDivision
   / comment* "(" _ expr:ExpressionWithDivision _ ")" { return expr }
 
 
+// PostfixExpression
+//   = PrimaryExpression
+//   / op:(UnaryOperator _) argument:PrimaryExpression  {
+//     return init(Ast.UnaryExpression, op[0], argument)
+//   }
+
+
 UnaryExpression
   = PrimaryExpression
   / op:(UnaryOperator _) argument:PrimaryExpression  {
@@ -364,7 +403,7 @@ UnaryExpression
 
 UnaryExpressionWithDivision
   = PrimaryExpressionWithDivision
-  / op:(UnaryOperator _) argument:PrimaryExpression  {
+  / op:(UnaryOperator _) argument:PrimaryExpressionWithDivision  {
     return init(Ast.UnaryExpression, op[0], argument)
   }
 
@@ -464,6 +503,11 @@ RangeExpression
     return tail ? init(Ast.Range, from, tail[1], tail[0]) : from
   }
 
+RangeExpressionWithDivision
+  = from:OrExpressionWithDivision tail:(list_range_exclusivity to:OrExpressionWithDivision)? {
+    return tail ? init(Ast.Range, from, tail[1], tail[0]) : from
+  }
+
 // Lists
 //
 // single item "lists" should be parsed as a value in parens and not lists
@@ -514,6 +558,10 @@ BracketedList
 Expression
   = ListExpression
 
+ExpressionNoCommaList
+  = SlashListExpression
+
+// FIXME: this seems wrong
 ExpressionWithDivision
    = OrExpressionWithDivision
 
@@ -752,17 +800,17 @@ selector 'selector'
 // -----------------------
 
 Parameter
-  = name:Variable _ ":" _ defaultValue:Expression? {
+  = name:Variable _ ":" _ defaultValue:ExpressionNoCommaList? {
     return init(Ast.Parameter, name, defaultValue)
   }
-  / name:Variable {
-    return init(Ast.Parameter, name)
+  / name:Variable rest:"..."? {
+    return rest ? init(Ast.RestParameter, name) : init(Ast.Parameter, name)
   }
 
 
 ParameterList
-  = head:Parameter _ tail:(',' param:Parameter { return param })* {
-    return [head, ...tail]
+  = head:Parameter _ tail:(',' _ param:Parameter { return param })* {
+    return init(Ast.ParameterList.fromTokens([head, ...tail]))
   }
 
 callable_declaration
@@ -771,24 +819,11 @@ callable_declaration
   }
 
 
-Argument
-  = name:Variable _ ":" _ value:Expression? {
-    return init(Ast.KeywordArgument, name, value)
-  }
-  / name:Variable {
-    return init(Ast.Argument, name)
-  }
-
-
-ArgumentList
-  = head:Argument _ tail:(',' param:Argument { return param })* {
-    return [head, ...tail]
-  }
-
 call_expression
-  = comment* name:Ident params:("(" _ p:ParameterList? _ ")"  { return p })? {
-    return init(Ast.CallableDeclaration, name, params || [])
-  }
+  = CallExpression
+  // name:Ident params:("(" _ p:ArgumentList? _ ")"  { return p })? {
+  //   return init(Ast.CallableDeclaration, name, params || [])
+  // }
 
 
 // mixin_declaration
@@ -796,6 +831,6 @@ call_expression
 
 // function_declaration
 //   = comment* name:Ident"(" _ params:Expression _ ")" {
-//     return new Ast.FunctionDeclaration(name[0], Ast.List.wrap([params));
+//     return new Ast.CallExpressionDeclaration(name[0], Ast.List.wrap([params));
 //   }
 

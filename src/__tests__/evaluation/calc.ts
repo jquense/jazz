@@ -15,6 +15,13 @@ describe('calc evaluation', () => {
 
       ['calc(calc(1 + /* 4 + */ 4) * 10px)', '50px'],
       ['calc(calc(1 + 4px) * 10)', '50px'],
+      ['min(40px, 20px)', '20px'],
+      ['min(40px, 20px, 35px)', '20px'],
+      ['max(40px, 20px)', '40px'],
+      ['max(40px, 20px, 300px)', '300px'],
+
+      ['clamp(40px, 30px, 60px)', '40px'],
+      ['clamp(40px, 70px, 60px)', '60px'],
     ])('%s -> %s', async (input, expected) => {
       const result = await evaluate(`
         $a: 10px;
@@ -35,10 +42,24 @@ describe('calc evaluation', () => {
       ['calc((10px + 10px) + 100vh)', 'calc(20px + 100vh)'],
       ['calc($c + 100vh)', 'calc(1em + 10px + 100vh)'],
       ['calc(-$c + 100vh)', 'calc(-1 * (1em + 10px) + 100vh)'],
-
       [
         'calc(max($a, $b + 30px, 4vw) * 1)',
         'calc(max(10px, 3% + 30px, 4vw) * 1)',
+      ],
+
+      [
+        'min(var(--a), 20px + 2em, max(20px + 30px, 10px))',
+        'min(var(--a), 20px + 2em, 50px)',
+      ],
+
+      [
+        'max(var(--a), 20px + 2em, max(20px + 30px, 10px))',
+        'max(var(--a), 20px + 2em, 50px)',
+      ],
+
+      [
+        'clamp(var(--a), 20px + 2em, max(20px + 30px, 10px))',
+        'clamp(var(--a), 20px + 2em, 50px)',
       ],
     ])('%s -> %s', async (input, expected) => {
       expect(

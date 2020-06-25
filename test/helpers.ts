@@ -14,6 +14,8 @@ export async function evaluate(cssStr: string, scope = new Scope()) {
   ]).process(cssStr, {
     parser: require('postcss-scss'),
     from: './test.js',
+    source: false,
+    trace: true,
     files: { './test.js': { scope } },
   } as any);
 

@@ -1,15 +1,19 @@
 import Parser from '.';
 import interleave from '../utils/interleave';
-import { Calc, MathCallExpression } from './Ast';
+import { MathCallExpression } from './Ast';
 
-export function calc(strings: TemplateStringsArray, ...values: Calc[]): Calc {
+export function calc(
+  strings: TemplateStringsArray,
+  ...values: MathCallExpression[]
+): MathCallExpression {
   const parser = new Parser();
 
   const innerCalcs = interleave(
     strings,
     values.map((v) => MathCallExpression.withContext(() => v.toString())),
   ).join('');
-  return new Calc(
+  return new MathCallExpression(
+    'calc',
     parser.parse(innerCalcs, {
       startRule: 'ExpressionWithDivision',
       source: false,

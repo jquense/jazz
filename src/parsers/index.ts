@@ -40,13 +40,16 @@ class Parser {
 
   private trace: boolean;
 
-  constructor({ trace }: { trace?: boolean } = {}) {
+  private opts: any;
+
+  constructor({ trace, ...opts }: { trace?: boolean } = {}) {
+    this.opts = opts;
     this.trace = !!trace;
   }
 
-  static get(root: postcss.Root): Parser {
+  static get(root: postcss.Root, opts?: any): Parser {
     // @ts-ignore
-    return root.__parser || (root.__parser = new Parser({ trace: true }));
+    return root.__parser || (root.__parser = new Parser(opts));
   }
 
   value(decl: postcss.Declaration) {
@@ -82,7 +85,7 @@ class Parser {
     const tracer =
       opts.tracer || (this.trace ? new Tracer(input) : { trace() {} });
     try {
-      return parse(input, { tracer, ...opts });
+      return parse(input, { tracer, ...this.opts, ...opts });
     } catch (err) {
       if (tracer.getBacktraceString) console.log(tracer.getBacktraceString());
       throw err;
@@ -113,6 +116,14 @@ class Parser {
     }) as Ast.CallableDeclaration;
 
     callable.body = node.nodes!.map((n) => n.remove());
+    return callable;
+  }
+
+  callExpression(expr: string): Ast.CallExpression {
+    const callable = this.parse(expr, {
+      startRule: 'call_expression',
+    }) as Ast.CallExpression;
+
     return callable;
   }
 
