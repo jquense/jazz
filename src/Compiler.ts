@@ -9,7 +9,7 @@ class Compiler extends Processor {
       ...opts,
       exportValues: false,
       postcss: {
-        parser: require('postcss-scss'),
+        parser: require('./parsers/postcss').default,
       },
     });
 
@@ -18,11 +18,11 @@ class Compiler extends Processor {
     this._process = postcss([
       require('./plugins/at-from').default,
       require('./plugins/value-processing').default,
-      require('@modular-css/processor/plugins/scoping.js'),
+      // require('@modular-css/processor/plugins/scoping.js'),
       require('@modular-css/processor/plugins/externals.js'),
       require('@modular-css/processor/plugins/composition.js'),
-      require('@modular-css/processor/plugins/keyframes.js'),
-      require('./plugins/at-export').default,
+      // require('@modular-css/processor/plugins/keyframes.js'),
+      // require('./plugins/at-export').default,
     ]);
   }
 

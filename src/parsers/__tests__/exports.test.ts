@@ -1,5 +1,10 @@
 import Parser from '..';
-import { Export, ExportAllSpecifier, ExportSpecifier, Variable } from '../Ast';
+import {
+  Export,
+  ExportAllSpecifier,
+  ExportSpecifier,
+  Variable,
+} from '../../Ast';
 
 describe('parser: exports', () => {
   let parse: (input: string) => any;

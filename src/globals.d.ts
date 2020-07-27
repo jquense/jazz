@@ -1,7 +1,7 @@
 /* eslint-disable */
 
 declare module '@modular-css/processor' {
-  import type postcss from 'postcss';
+  import type postcss, { CssSyntaxError } from 'postcss';
 
   class Processor {
     // eslint-disable-next-line @typescript-eslint/no-useless-constructor
@@ -45,56 +45,80 @@ declare namespace jest {
 }
 
 declare module 'postcss/lib/input' {
-  import type { ParserInput } from 'postcss';
+  import type { ParserInput, CssSyntaxError } from 'postcss';
 
   export default class Input {
-    constructor(css: string);
+    constructor(css: ParserInput, opts?: any);
+    error(msg: string, line: number, col: number): CssSyntaxError;
   }
 }
 
-declare module 'postcss-values-parser/lib/ValuesParser' {
-  import type { Input, Parser } from 'postcss';
-  import type { ParseOptions, Root } from 'postcss-values-parser';
+declare module 'postcss-scss/lib/scss-parser' {
+  import type { Container, Declaration, ChildNode } from 'postcss';
+  import type Input from 'postcss/lib/input';
 
   export type Token = [string, string, number, number, number, number];
 
-  declare class ValuesParser extends Parser {
-    constructor(input: Input, opts: ParseOptions);
+  interface Tokenizer {
+    nextToken(): Token | undefined;
+    back(token: Token): void;
+  }
 
-    unknownWord(tokens: Token[]): void;
+  class NestedDeclaration extends Declaration {
+    type: 'decl';
+
+    isNested: true;
+
+    nodes?: ChildNode[];
+    first?: ChildNode;
+    last?: ChildNode;
+  }
+
+  class Parser {
+    constructor(input: Input, opts: any);
+
+    current: Container | NestedDeclaration;
+
+    readonly tokenizer: Tokenizer;
+
+    readonly input: Input;
+
+    rule(tokens: Token): void;
+    atrule(tokens: Token): void;
+    decl(tokens: Token): void;
 
     root: Root;
 
     parse(): void;
   }
 
-  export default ValuesParser;
+  export default Parser;
 }
 
-declare module 'postcss-values-parser/lib/ValuesStringifier' {
-  import type { Stringifier } from 'postcss';
-  declare class ValuesStringifier extends Stringifier {
-    static stringify(...args: any[]): any;
-  }
+declare module '@csstools/convert-colors' {
+  type Tuple3<T> = [T, T, T];
 
-  export default ValuesStringifier;
-}
+  export declare function rgb2hwb(
+    r: number,
+    g: number,
+    b: number,
+  ): Tuple3<number>;
 
-declare module 'postcss-values-parser/lib/nodes/Operator' {
-  import type { Parser, Node } from 'postcss';
-  import type { NodeOptions } from 'postcss-selector-parser';
+  export declare function hwb2rgb(
+    h: number,
+    w: number,
+    b: number,
+  ): Tuple3<number>;
 
-  declare class Operator extends Node {
-    constructor(options: NodeOptions) {}
+  export declare function rgb2hsl(
+    r: number,
+    g: number,
+    b: number,
+  ): Tuple3<number>;
 
-    static chars: string[];
-
-    static fromTokens(tokens: Token, parser: any): Void;
-
-    static get regex(): RegExp;
-
-    static tokenize(tokens: Token[], parser: any): void;
-  }
-
-  export default Operator;
+  export declare function hsl2rgb(
+    h: number,
+    s: number,
+    l: number,
+  ): Tuple3<number>;
 }

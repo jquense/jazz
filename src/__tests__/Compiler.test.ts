@@ -2,7 +2,7 @@ import path from 'path';
 
 import { Volume } from 'memfs';
 
-import Compiler from '../Compiler';
+import Compiler from '../Processor';
 
 describe('Compiler', () => {
   function get() {
@@ -74,7 +74,8 @@ describe('Compiler', () => {
         @export $baz;
       `,
     );
-    expect(details.classes).toEqual({
+
+    expect(details.selectors).toEqual({
       foo: ['m_foo'],
     });
     expect(details.values).toEqual({

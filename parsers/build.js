@@ -14,15 +14,17 @@ const generate = async () => {
       allowedStartRules: [
         'imports',
         'exports',
-        'at_composes',
         'values',
         'selector',
         'declaration_prop',
         'declaration_value',
+        'almost_any_value',
         'for_condition',
         'each_condition',
         'callable_declaration',
         'call_expression',
+        'call_expressions',
+        'compose_list',
         'selector',
 
         // for tests

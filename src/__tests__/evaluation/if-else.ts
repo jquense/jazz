@@ -1,5 +1,5 @@
 import { css, evaluate } from '../../../test/helpers';
-import * as Ast from '../../parsers/Ast';
+import * as Ast from '../../Ast';
 
 describe('if/else evaluation', () => {
   it('should evaluate @if', async () => {
@@ -144,10 +144,50 @@ describe('if/else evaluation', () => {
 
   it('should throw on unresolvable calc', async () => {
     await expect(
-      evaluate(`.a { @if calc(5em + 2px) == 12px { a: true } }`),
+      evaluate(
+        css`
+          .a {
+            @if calc(5em + 2px) == 12px {
+              a: true;
+            }
+          }
+        `,
+      ),
     ).rejects.toThrow(
-      'Cannot evaluate calc(5em + 2px) == 12px. ' +
-        'Math functions must be resolvable when combined outside of another math function',
+      'The expression calc(5em + 2px) == 12px contains unresolvable math expressions making numeric comparison impossible.',
     );
+  });
+
+  it('should throw bad ordering', async () => {
+    await expect(
+      evaluate(
+        css`
+          @else if true {
+            a: true;
+          }
+        `,
+      ),
+    ).rejects.toThrow('@else rules must follow an @if');
+
+    await expect(
+      evaluate(
+        css`
+          @else true {
+            a: true;
+          }
+        `,
+      ),
+    ).rejects.toThrow('@else rules must follow an @if');
+
+    await expect(
+      evaluate(
+        css`
+          @if true {
+          } @else {
+          } @else if {
+          }
+        `,
+      ),
+    ).rejects.toThrow('@else rules must follow an @if');
   });
 });

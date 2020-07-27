@@ -142,14 +142,14 @@ describe('calc evaluation', () => {
         }
       `),
     ).rejects.toThrowError(
-      'Cannot evaluate $width + 100vh (evaluated as: red + 100vh). Some terms are not numerical',
+      'Cannot evaluate $width + 100vh (resolved to: red + 100vh). Some terms are not numerical',
     );
   });
 
   it.each([
     [
       'calc(100vh / 1px)',
-      'Cannot divide 100vh by 1px because 1px is not unitless',
+      'Cannot divide 100vh by 1px because 1px contains units that would produce an invalid CSS value',
     ],
     [
       'calc(100vh * 1px)',

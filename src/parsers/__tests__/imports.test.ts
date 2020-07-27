@@ -5,7 +5,7 @@ import {
   ImportNamedSpecifier,
   ImportNamespaceSpecifier,
   Variable,
-} from '../Ast';
+} from '../../Ast';
 
 describe('parser: imports', () => {
   let parse: (input: string) => any;

@@ -1,60 +1,57 @@
-import type { AtRule } from 'postcss';
-
-import Parser from '../parsers';
+import * as Ast from '../Ast';
+import ModuleMembers from '../ModuleMembers';
+import Scope from '../Scope';
+import { isBuiltin, loadBuiltIn } from '../modules';
 import { PostcssPlugin, PostcssProcessOptions } from '../types';
-import Scope from '../utils/Scope';
-import { EXPORTS } from '../utils/Symbols';
-import { isBuiltin, loadBuiltIn } from './modules';
 
 export function transformAtFrom(
-  rule: AtRule,
+  rule: Ast.FromAtRule,
   opts: PostcssProcessOptions,
-  parser: Parser,
 ) {
-  const { files, from, resolve } = opts;
-  const file = files[from!];
+  const { modules, from, resolve } = opts;
+  const file = modules.get(from!)!;
 
   const scope = file.scope || (file.scope = new Scope());
 
-  const { source, specifiers } = parser.import(rule);
+  const { request, specifiers } = rule;
 
   let otherFile: string;
-  let exports: Scope;
+  let exports: ModuleMembers;
 
-  if (isBuiltin(source)) {
-    otherFile = source;
-    exports = loadBuiltIn(source);
+  if (isBuiltin(request)) {
+    otherFile = request;
+    exports = loadBuiltIn(request);
   } else {
-    otherFile = resolve(from, source);
-    exports = files[otherFile][EXPORTS];
+    otherFile = resolve(from, request);
+    exports = modules.get(otherFile)!.exports;
   }
 
   for (const specifier of specifiers) {
     if (specifier.type === 'namespace' && exports) {
-      scope.from(exports, specifier.local.value);
-      // console.log(scope.members, exports, specifier.local.value);
+      scope.addAll(exports, specifier.local.value);
     }
     if (specifier.type === 'named') {
       const other = exports.get(specifier.imported);
 
       if (!other) {
-        throw rule.error(`"${source}" does not export ${specifier.imported}`, {
-          word: `${specifier.imported}`,
-        });
+        throw rule.error(
+          `"${request}" does not export ${specifier.imported}`,
+          {
+            word: `${specifier.imported}`,
+          },
+        );
       }
 
       scope.set(specifier.local, { ...other, source: otherFile });
     }
   }
-  // console.log('my', file.scope);
+
   rule.remove();
 }
 
 const importsPlugin: PostcssPlugin = (css, { opts }) => {
-  const parser = Parser.get(css, opts);
-
   css.walkAtRules('from', (rule) => {
-    transformAtFrom(rule, opts, parser);
+    transformAtFrom(rule as any, opts);
   });
 };
 

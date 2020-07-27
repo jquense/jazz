@@ -6,6 +6,7 @@ import {
   BinaryExpression,
   BooleanLiteral,
   CallExpression,
+  ClassReference,
   DOUBLE,
   EachCondition,
   Expression,
@@ -29,7 +30,7 @@ import {
   StringTemplate,
   UnaryExpression,
   Variable,
-} from '../Ast';
+} from '../../Ast';
 
 function op(str: Operators) {
   return new Operator(str);
@@ -98,6 +99,13 @@ describe('parser: values', () => {
     ])('%s', processTestCases);
   });
 
+  describe('class references', () => {
+    it.each([
+      ['%bar', new ClassReference('bar')],
+      ['foo.%bar', new ClassReference('bar', 'foo')],
+    ])('%s', processTestCases);
+  });
+
   describe('strings', () => {
     it.each([
       [
@@ -122,10 +130,9 @@ describe('parser: values', () => {
         'round($number: 4)',
         new CallExpression(
           new Ident('round'),
-          new ArgumentList(
-            [],
-            new Map([[new Ident('number'), new Numeric(4)]]),
-          ),
+          new ArgumentList([
+            new KeywordArgument(new Variable('number'), new Numeric(4)),
+          ]),
         ),
       ],
       [
@@ -140,7 +147,8 @@ describe('parser: values', () => {
         new CallExpression(
           new Ident('foo'),
 
-          new ArgumentList([new Numeric(1)], undefined, [
+          new ArgumentList([
+            new Numeric(1),
             new SpreadArgument(new Variable('foo')),
           ]),
         ),
@@ -149,7 +157,8 @@ describe('parser: values', () => {
         `foo(1, 3 + 4..., (2: 4)...)`,
         new CallExpression(
           new Ident('foo'),
-          new ArgumentList([new Numeric(1)], undefined, [
+          new ArgumentList([
+            new Numeric(1),
             new SpreadArgument(
               new BinaryExpression(new Numeric(3), op('+'), new Numeric(4)),
             ),
@@ -161,7 +170,8 @@ describe('parser: values', () => {
         `foo(1, 3 4...)`,
         new CallExpression(
           new Ident('foo'),
-          new ArgumentList([new Numeric(1)], undefined, [
+          new ArgumentList([
+            new Numeric(1),
             new SpreadArgument(
               new List([new Numeric(3), new Numeric(4)], space),
             ),
@@ -172,14 +182,11 @@ describe('parser: values', () => {
         'rgba($r: 1, $g: 2, $b: 3)',
         new CallExpression(
           new Ident('rgba'),
-          new ArgumentList(
-            [],
-            new Map([
-              [new Ident('r'), new Numeric(1)],
-              [new Ident('g'), new Numeric(2)],
-              [new Ident('b'), new Numeric(3)],
-            ]),
-          ),
+          new ArgumentList([
+            new KeywordArgument(new Variable('r'), new Numeric(1)),
+            new KeywordArgument(new Variable('g'), new Numeric(2)),
+            new KeywordArgument(new Variable('b'), new Numeric(3)),
+          ]),
         ),
       ],
     ])('%s', processTestCases);

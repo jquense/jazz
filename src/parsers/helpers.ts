@@ -1,6 +1,6 @@
 import Parser from '.';
 import interleave from '../utils/interleave';
-import { MathCallExpression } from './Ast';
+import { MathCallExpression } from '../Ast';
 
 export function calc(
   strings: TemplateStringsArray,

@@ -1,5 +1,5 @@
 {
-  const Ast = require('./Ast');
+  const Ast = require('../Ast');
 
   function init(Node, ...args) {
     const node = 'type' in Node ? Node : new Node(...args)
@@ -134,11 +134,15 @@ function "function"
   = name:(ident / namespaced_ident) "(" { return name; }
 
 
-any_value
-  = (Interpolation / [^:!(){}] / escape)+
-  / "(" b:any_value* ")" { return ['(', ...b.flat(), ')'] }
-  / "{" b:any_value* "}" { return ["{" , ...b.flat(),"}"] }
+// any_value
+//   = (Interpolation / [^:!(){}] / escape)+
+//   / "(" b:any_value* ")" { return ['(', ...b.flat(), ')'] }
+//   / "{" b:any_value* "}" { return ["{" , ...b.flat(),"}"] }
 
+almost_any_value
+  = chars:(Interpolation / [^;!{}])* {
+    return init(Ast.StringTemplate.fromTokens(chars))
+  }
 
 combinator
   = "+" _ { return "+"; }
@@ -234,12 +238,21 @@ NamespacedIdent
 
 
 Variable
-  = comment* '$' name:ident { return init(Ast.Variable,name) }
+  = comment* '$' name:ident { return init(Ast.Variable, name) }
 
 
 NamespacedVariable
   = comment* namespace:ident '.$' name:ident {
     return init(Ast.Variable, name, namespace)
+  }
+
+
+ClassReference
+  = comment* '%' name:ident { return init(Ast.ClassReference, name) }
+
+NamespacedClassReference
+  = comment* namespace:ident '.%' name:ident {
+    return init(Ast.ClassReference, name, namespace)
   }
 
 
@@ -372,6 +385,8 @@ Value
   / CallExpression
   / NamespacedVariable
   / Variable
+  / NamespacedClassReference
+  / ClassReference
   / NamespacedIdent
   / InterpolatedIdent
   / Map
@@ -596,7 +611,7 @@ imports
 
 
 specifier_alias
-  = "as" _ local:(Variable / Ident) {
+  = "as" _ local:(Variable / ClassReference / Ident) {
     return local
   }
 
@@ -606,7 +621,7 @@ ImportNamespaceSpecifier
   }
 
 ImportSpecifier
-  = imported:(Variable / Ident) _ local:specifier_alias? _ {
+  = imported:(Variable / ClassReference / Ident) _ local:specifier_alias? _ {
     if (imported && local && imported.type !== local.type) {
       error(`Cannot import ${imported.type === 'variable' ? 'a variable as an identifier' : 'an identifier as a variable'}.`)
     }
@@ -628,19 +643,12 @@ ImportSpecifiers
 
 // @composes
 
-at_composes '@composes'
+compose_list '@compose'
   = _ classes:class_list _ source:from_source _ {
-    return {
-      classes,
-      source: source.source,
-      type: source.global ? 'global' : 'import',
-    }
+    return init(Ast.Composition, classes, source.global, source.source)
   }
   / _ classes:class_list _ {
-    return {
-      type: 'local',
-      classes,
-    };
+    return init(Ast.Composition, classes, false)
   }
 
 class_list
@@ -692,12 +700,15 @@ declaration_prop
   = Variable / InterpolatedIdent
 
 
+declaration_value_parts
+  = (Interpolation / [^:!(){}] / escape)+
+  / "(" b:declaration_value_parts* ")" { return ['(', ...b.flat(), ')'] }
+  / "{" b:declaration_value_parts* "}" { return ["{" , ...b.flat(),"}"] }
+
 declaration_value
-  = chars:any_value* {
+  = chars:declaration_value_parts* {
     return init(Ast.StringTemplate.fromTokens(chars.flat()))
   }
-
-
 
 
 for_condition "for rule"
@@ -722,10 +733,10 @@ UniversalSelector
   = comment* '*' { return init(Ast.UniversalSelector) }
 
 ElementSelector
-  = comment* name:InterpolatedIdent { return init(Ast.TypeSelector, name) }
+  = comment* name:Ident { return init(Ast.TypeSelector, name) }
 
 ParentSelector
-  = comment* prefix:InterpolatedIdent? '&' suffix:InterpolatedIdent? {
+  = comment* prefix:Ident? '&' suffix:Ident? {
     return init(Ast.ParentSelector, prefix ?? undefined, suffix ?? undefined)
   }
 
@@ -736,30 +747,40 @@ TypeSelector "type selector"
 
 
 IdSelector "id selector"
-  = comment* "#" name:InterpolatedIdent { return init(Ast.IdSelector, name) }
+  = comment* "#" name:Ident { return init(Ast.IdSelector, name) }
 
 
 ClassSelector "class selector"
-  = comment* "." name:InterpolatedIdent { return init(Ast.ClassSelector, name) }
+  = comment* "." name:Ident { return init(Ast.ClassSelector, name) }
+
+
+PlaceholderSelector "placeholder selector"
+  = comment* "%" name:Ident { return init(Ast.PlaceholderSelector, name) }
 
 
 AttributeSelector
-  = "[" _ attribute:InterpolatedIdent _ operatorAndValue:(("=" / '~=' / '|=' / '^=' / '$=' / '*=') _ (InterpolatedIdent / StringTemplate) _)? "]" {
+  = "[" _ attribute:Ident _ operatorAndValue:(("=" / '~=' / '|=' / '^=' / '$=' / '*=') _ (Ident / StringTemplate) _)? "]" {
     return init(Ast.AttributeSelector, attribute, operatorAndValue?.[0], operatorAndValue?.[2])
   }
 
 
 PseudoSelector
-  = ":" el:":"? name:InterpolatedIdent value:("(" _ v:declaration_value _ ")" { return v })? {
-    return init(Ast.PseudoSelector, name, !!el, value ?? undefined)
+  = ":" el:":"? name:Ident params:("(" _ v:declaration_value _ ")" { return v })? {
+    return init(Ast.PseudoSelector.fromTokens(el, name, params ?? undefined, () => parse(params.value, {
+      ...options,
+      startRule: 'selector'
+    })))
   }
 
+SimpleSelector
+  = IdSelector / ClassSelector / PlaceholderSelector / AttributeSelector / PseudoSelector
 
 CompoundSelector
-  = type:TypeSelector qualifiers:(IdSelector / ClassSelector / AttributeSelector / PseudoSelector)* {
+  = type:TypeSelector qualifiers:SimpleSelector* {
+
     return init(Ast.CompoundSelector, [type, ...qualifiers])
   }
-  / qualifiers:(IdSelector / ClassSelector / AttributeSelector / PseudoSelector)+ {
+  / qualifiers:SimpleSelector+ {
     return init(Ast.CompoundSelector, qualifiers)
   }
 
@@ -815,15 +836,23 @@ ParameterList
 
 callable_declaration
   = comment* name:Ident params:("(" _ p:ParameterList? _ ")"  { return p })? {
-    return init(Ast.CallableDeclaration, name, params || [])
+    return init(Ast.CallableDeclaration, name, params || undefined)
   }
 
 
 call_expression
   = CallExpression
-  // name:Ident params:("(" _ p:ArgumentList? _ ")"  { return p })? {
-  //   return init(Ast.CallableDeclaration, name, params || [])
-  // }
+  / _ name:(NamespacedIdent /Ident ) _ {
+    if (options.allowCallWithoutParens)
+      return init(Ast.CallExpression, name);
+
+    throw expected('(')
+  }
+
+call_expressions
+  = head:call_expression _ tail:(',' _ call:call_expression { return call })* {
+    return [head, ...tail]
+  }
 
 
 // mixin_declaration

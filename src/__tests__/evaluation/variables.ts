@@ -1,6 +1,7 @@
 import { css, evaluate } from '../../../test/helpers';
-import * as Ast from '../../parsers/Ast';
-import Scope from '../../utils/Scope';
+import ModuleMembers from '../../ModuleMembers';
+import Scope from '../../Scope';
+import { RgbValue, StringValue } from '../../Values';
 
 describe('variable evaluation', () => {
   it('should replace variables in declarations', async () => {
@@ -25,17 +26,17 @@ describe('variable evaluation', () => {
     `);
 
     expect(scope.members).toEqual(
-      new Map([
+      new ModuleMembers([
         [
           '$color',
           expect.objectContaining({
-            node: new Ast.Color('red'),
+            node: new RgbValue('red'),
           }),
         ],
         [
           '$name',
           expect.objectContaining({
-            node: new Ast.Ident('a'),
+            node: new StringValue('a'),
           }),
         ],
       ]),
@@ -74,6 +75,57 @@ describe('variable evaluation', () => {
       .a .b.a {
         content: '.a .b.a';
         other: .a .b.a;
+      }
+    `);
+  });
+
+  it('should handle scoping', async () => {
+    expect(
+      await evaluate(css`
+        $first: blue;
+        $first: red;
+
+        .a {
+          a: $first;
+        }
+
+        $first: orange;
+
+        .b {
+          a: $first;
+        }
+        .c {
+          $first: blue;
+          $num: 0;
+
+          @if 1 + 3 == 4 {
+            $first: purple;
+
+            @each $i in 1 through 3 {
+              $num: $num + 1;
+            }
+          }
+          a: $first;
+          b: $num;
+        }
+        .d {
+          a: $first;
+        }
+      `),
+    ).toMatchCss(css`
+      .a {
+        a: red;
+      }
+
+      .b {
+        a: orange;
+      }
+      .c {
+        a: purple;
+        b: 3;
+      }
+      .d {
+        a: orange;
       }
     `);
   });

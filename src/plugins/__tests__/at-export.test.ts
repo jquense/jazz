@@ -1,82 +1,67 @@
-import path from 'path';
-
-import postcss from 'postcss';
-
-import * as Ast from '../../parsers/Ast';
-import Scope from '../../utils/Scope';
-import { EXPORTS } from '../../utils/Symbols';
-import plugin from '../at-export';
+import { evaluate } from '../../../test/helpers';
+import ModuleMembers from '../../ModuleMembers';
+import Scope from '../../Scope';
+import { NumericValue, RgbValue } from '../../Values';
 
 describe('@export', () => {
-  function run(css: string, opts: any) {
-    return postcss(plugin).process(css, {
-      parser: require('postcss-scss'),
-      from: '/foo.js',
-      resolve: (from: string, to: string) => {
-        return path.join(path.dirname(from), to);
-      },
-      ...opts,
-    } as any);
-  }
-
   it.each([
     [
       `@export $bar, $foo from './other'`,
-
-      new Map([
-        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
-      ]),
+      {
+        $bar: { type: 'variable', node: new NumericValue(1, 'px') },
+        $foo: { type: 'variable', node: new RgbValue('red') },
+      },
     ],
     [
       `@export * from './other'`,
-      new Map([
-        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
-      ]),
+      {
+        $bar: { type: 'variable', node: new NumericValue(1, 'px') },
+        $foo: { type: 'variable', node: new RgbValue('red') },
+      },
     ],
     [
       `@export $bar as $baz, $foo;`,
-      new Map([
-        ['$baz', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
-      ]),
-      new Map([
-        ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-        ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      {
+        $baz: { type: 'variable', node: new NumericValue(1, 'px') },
+        $foo: { type: 'variable', node: new RgbValue('red') },
+      },
+      // the local members
+      new ModuleMembers([
+        ['$bar', { type: 'variable', node: new NumericValue(1, 'px') }],
+        ['$foo', { type: 'variable', node: new RgbValue('red') }],
       ]),
     ],
   ])(
     'should export variables for: %s',
-    async (css, expected, local: any = {}) => {
-      const exports = new Scope();
+    async (css, expected, members: ModuleMembers = new ModuleMembers()) => {
+      const exports = new ModuleMembers();
 
-      await run(css, {
-        resolve: (from: string, to: string) => {
-          return path.join(path.dirname(from), to);
-        },
-        files: {
-          '/foo.js': {
-            [EXPORTS]: exports,
-            scope: new Scope({ members: local }),
-          },
-          '/other': {
-            [EXPORTS]: new Scope({
-              members: new Map([
-                ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-                ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      await evaluate(css, {
+        exports,
+        scope: new Scope({ members }),
+        modules: [
+          [
+            'other',
+            {
+              scope: new Scope(),
+              exports: new ModuleMembers([
+                [
+                  '$bar',
+                  { type: 'variable', node: new NumericValue(1, 'px') },
+                ],
+                ['$foo', { type: 'variable', node: new RgbValue('red') }],
               ]),
-            }),
-          },
-        },
-      } as any);
-
-      const result: any = new Map();
-      expected.forEach((value, key) => {
-        result.set(key, expect.objectContaining(value));
+            },
+          ],
+        ],
       });
 
-      expect(exports.members).toEqual(result);
+      const result = [] as any[];
+      Object.entries(expected).forEach(([key, value]) => {
+        result.push([key, expect.objectContaining(value)]);
+      });
+
+      expect(Array.from(exports)).toEqual(result);
     },
   );
 
@@ -86,23 +71,30 @@ describe('@export', () => {
     [`@export ( $baz );`, 'There is no local $baz declared.'],
   ])('should throw variables for: %s', async (css, error) => {
     await expect(() =>
-      run(css, {
-        resolve: (from: string, to: string) => {
-          return path.join(path.dirname(from), to);
-        },
-        files: {
-          '/foo.js': { scope: new Scope() },
-          '/other': {
-            [EXPORTS]: new Scope({
-              members: new Map([
-                ['$bar', { type: 'variable', node: new Ast.Numeric(1, 'px') }],
-                ['$foo', { type: 'variable', node: new Ast.Color('red') }],
+      evaluate(css, {
+        modules: [
+          [
+            'other',
+            {
+              scope: new Scope(),
+              exports: new ModuleMembers([
+                [
+                  '$bar',
+                  { type: 'variable', node: new NumericValue(1, 'px') },
+                ],
+                ['$foo', { type: 'variable', node: new RgbValue('red') }],
               ]),
-            }),
-          },
-          '/none': { [EXPORTS]: new Scope() },
-        },
-      } as any),
+            },
+          ],
+          [
+            '/none',
+            {
+              scope: new Scope(),
+              exports: new ModuleMembers(),
+            },
+          ],
+        ],
+      }),
     ).rejects.toThrowError(error);
   });
 });

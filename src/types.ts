@@ -1,9 +1,13 @@
 import type { LazyResult, ProcessOptions, Result, Root } from 'postcss';
 
-import Scope from './utils/Scope';
-import { EXPORTS } from './utils/Symbols';
+import type ModuleMembers from './ModuleMembers';
+// eslint-disable-next-line import/no-duplicates
+import type Scope from './Scope';
+import type { IdentifierScope } from './utils/infer-scope';
 
-export type JsMap<K, V> = Map<K, V>;
+export type Keys<Obj, Exclude> = {
+  [P in keyof Obj]: Obj[P] extends Exclude ? P : never;
+}[keyof Obj];
 
 export interface Value {
   name?: string;
@@ -11,19 +15,31 @@ export interface Value {
   source?: string;
 }
 
+export interface Module {
+  scope: Scope;
+  exports: ModuleMembers;
+}
+
 export interface ProcessingFile {
   text: string;
-  values: Record<string, Value>;
+  // values: Record<string, Value>;
 
-  scope: Scope;
-
-  [EXPORTS]: Scope;
+  module: Module;
 
   valid: boolean;
   before: LazyResult;
   processed?: LazyResult;
   result?: Result;
   walked: Promise<void>;
+}
+
+export interface File {
+  text: string;
+  module: Module;
+  valid: boolean;
+  result: Result;
+  values: Record<string, string>;
+  selectors: Record<string, string[]>;
 }
 
 // export type Scope = {
@@ -42,7 +58,11 @@ export type PostcssPlugin = { postcssPlugin?: string } & ((
 
 export interface ModularCSSOpts {
   resolve: any;
-  files: Record<string, ProcessingFile>;
+  source?: boolean;
+  trace?: boolean;
+  identifierScope?: IdentifierScope;
+  namer?: (fileName: string, ident: string) => string;
+  modules: Map<string, Module>;
 }
 
 export type Variable = {

@@ -11,7 +11,7 @@ import {
   StringLiteral,
   UnaryExpression,
   Variable,
-} from '../Ast';
+} from '../../Ast';
 import { calc } from '../helpers';
 
 function stringify(cases: Array<[Node, string] | [Node, string, false]>) {

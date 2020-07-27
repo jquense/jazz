@@ -5,39 +5,10 @@
 import Tracer from 'pegjs-backtrace';
 import postcss from 'postcss';
 
-import * as Ast from './Ast';
+import * as Ast from '../Ast';
 import { IParseOptions, parse } from './parser';
-// @ts-ignore
-
-function getOrAdd<T extends postcss.Node, U>(
-  map: WeakMap<T, U>,
-  key: T,
-  factory: () => U,
-): U {
-  let value = map.get(key);
-  if (!map.has(key)) {
-    value = factory();
-    map.set(key, value);
-  }
-  return value!;
-}
 
 class Parser {
-  private propCache = new WeakMap<postcss.Declaration, Ast.DeclarationValue>();
-
-  private valueCache = new WeakMap<
-    postcss.Declaration,
-    Ast.DeclarationValue
-  >();
-
-  private importsCache = new WeakMap<postcss.AtRule, Ast.Import>();
-
-  private exportsCache = new WeakMap<postcss.AtRule, Ast.Export>();
-
-  private expressionCache = new WeakMap<postcss.AtRule, Ast.Expression>();
-
-  private forConditionCache = new WeakMap<postcss.AtRule, Ast.ForCondition>();
-
   private trace: boolean;
 
   private opts: any;
@@ -52,33 +23,22 @@ class Parser {
     return root.__parser || (root.__parser = new Parser(opts));
   }
 
-  value(decl: postcss.Declaration) {
-    return getOrAdd(
-      this.valueCache,
-      decl,
-      () =>
-        new Ast.DeclarationValue(
-          this.parse(decl.value, { startRule: 'values' }),
-        ),
-    );
+  value(decl: postcss.Declaration): Ast.Expression {
+    return this.parse(decl.value, { startRule: 'values' });
   }
 
-  prop(decl: postcss.Declaration) {
-    return getOrAdd(this.propCache, decl, () =>
-      this.parse(decl.prop, { startRule: 'declaration_prop' }),
-    );
+  prop(
+    decl: postcss.Declaration,
+  ): Ast.Ident | Ast.Variable | Ast.InterpolatedIdent {
+    return this.parse(decl.prop, { startRule: 'declaration_prop' });
   }
 
   import(node: postcss.AtRule): Ast.Import {
-    return getOrAdd(this.importsCache, node, () =>
-      this.parse(node.params, { startRule: 'imports' }),
-    );
+    return this.parse(node.params, { startRule: 'imports' });
   }
 
   export(node: postcss.AtRule): Ast.Export {
-    return getOrAdd(this.exportsCache, node, () =>
-      this.parse(node.params, { startRule: 'exports' }),
-    );
+    return this.parse(node.params, { startRule: 'exports' });
   }
 
   parse(input: string, opts: IParseOptions) {
@@ -92,43 +52,62 @@ class Parser {
     }
   }
 
-  expression(node: postcss.AtRule): Ast.Expression {
-    return getOrAdd(this.expressionCache, node, () =>
-      this.parse(node.params, { startRule: 'Expression' }),
-    );
+  expression(params: string): Ast.Expression {
+    return this.parse(params, { startRule: 'Expression' });
   }
 
   eachCondition(node: postcss.AtRule): Ast.EachCondition {
-    return getOrAdd(this.forConditionCache, node, () =>
-      this.parse(node.params, { startRule: 'each_condition' }),
-    );
+    return this.parse(node.params, { startRule: 'each_condition' });
   }
 
-  forCondition(node: postcss.AtRule): Ast.ForCondition {
-    return getOrAdd(this.forConditionCache, node, () =>
-      this.parse(node.params, { startRule: 'for_condition' }),
-    );
-  }
-
-  callable(node: postcss.AtRule): Ast.CallableDeclaration {
-    const callable = this.parse(node.params, {
+  callable(call: string): Ast.CallableDeclaration {
+    const callable = this.parse(call, {
       startRule: 'callable_declaration',
     }) as Ast.CallableDeclaration;
 
-    callable.body = node.nodes!.map((n) => n.remove());
     return callable;
   }
 
-  callExpression(expr: string): Ast.CallExpression {
+  callExpression(expr: string, isMixin = false): Ast.CallExpression {
     const callable = this.parse(expr, {
       startRule: 'call_expression',
+      allowCallWithoutParens: isMixin,
     }) as Ast.CallExpression;
 
     return callable;
   }
 
+  callExpressions(expr: string, isMixin = false): Ast.CallExpression[] {
+    const callables = this.parse(expr, {
+      startRule: 'call_expressions',
+      allowCallWithoutParens: isMixin,
+    });
+
+    return callables;
+  }
+
+  composeList(expr: string): Ast.Composition {
+    const classes = this.parse(expr, {
+      startRule: 'compose_list',
+    });
+
+    return classes;
+  }
+
   selector(selector: string) {
     return this.parse(selector, { startRule: 'selector' }) as Ast.SelectorList;
+  }
+
+  declarationValue(selector: string) {
+    return this.parse(selector, {
+      startRule: 'declaration_value',
+    }) as Ast.StringTemplate;
+  }
+
+  anyValue(selector: string) {
+    return this.parse(selector, {
+      startRule: 'almost_any_value',
+    }) as Ast.StringTemplate;
   }
 }
 
