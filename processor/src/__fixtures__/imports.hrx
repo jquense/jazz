@@ -1,0 +1,26 @@
+<===> placeholders/input.mcss
+@use './colors.mcss' import ($red, %color);
+
+.a > %color {
+  color: $red;
+}
+
+<===> placeholders/colors.mcss
+
+$red: rgb(255, 0, 0);
+
+.color {
+  color: $red;
+}
+
+@export $red;
+
+<===> placeholders/output.mcss
+/* placeholders/colors.mcss */
+.colors_color {
+  color: rgb(255, 0, 0);
+}
+/* placeholders/input.mcss */
+.input_a > .colors_color {
+  color: rgb(255, 0, 0);
+}

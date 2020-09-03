@@ -1,0 +1,10 @@
+{
+  "extends": ".",
+  "compilerOptions": {
+    "composite": false,
+    "rootDir": "src",
+    "outDir": "lib"
+  },
+  "include": ["src"],
+  "exclude": ["**/parser.ts", "**/__tests__/*", "**/__fixtures__/*"]
+}

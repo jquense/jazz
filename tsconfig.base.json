@@ -1,0 +1,11 @@
+{
+  "extends": "@4c/tsconfig/node",
+  "compilerOptions": {
+    "types": ["node", "jest"],
+    "lib": ["es2019", "es2020.string"],
+    "declaration": true,
+    "declarationMap": true,
+    "composite": true
+  },
+  "exclude": ["**/__test__/*", "**/__test__/*"]
+}

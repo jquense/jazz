@@ -1,0 +1,5 @@
+@use './config' import $red;
+
+.app {
+  color: red;
+}

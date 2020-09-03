@@ -1,0 +1,40 @@
+<===> input.mcss
+@use './colors.mcss' import %red;
+
+$blue: blue;
+
+.a > %red {
+  color: $blue;
+}
+
+@export $blue;
+
+<===> colors.mcss
+
+.red {
+  color: rgb(255, 0, 0);
+}
+
+<===> output.mcss
+/* colors.mcss */
+.colors_red {
+  color: rgb(255, 0, 0);
+}
+:export {
+  red: colors_red;
+}
+/* input.mcss */
+:import("./colors.mcss") {
+  ____a: a;
+}
+.input_a > .colors_red {
+  color: blue;
+}
+:export {
+  blue: blue;
+  a: input_a;
+}
+<===> options.json
+{
+  "icssCompatible": true
+}

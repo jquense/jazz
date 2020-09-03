@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noImplicitAny": false,
+    "composite": true,
+    "declarationMap": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../packages/loader"
+    }
+  ]
+}
