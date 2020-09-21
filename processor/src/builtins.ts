@@ -1,4 +1,4 @@
-import { Callable } from './Interop';
+import { create } from './Callable';
 import {
   AnyColorValue,
   ArgumentListValue,
@@ -13,15 +13,15 @@ import * as math from './utils/Math';
 // -- Math
 // -----------
 
-export const min = Callable.fromFunction('min', (...$numbers: MathValue[]) =>
+export const min = create('min', (...$numbers: MathValue[]) =>
   math.min($numbers, false),
 );
 
-export const max = Callable.fromFunction('max', (...$numbers: MathValue[]) =>
+export const max = create('max', (...$numbers: MathValue[]) =>
   math.max($numbers, false),
 );
 
-export const clamp = Callable.fromFunction(
+export const clamp = create(
   'clamp',
   ($min: MathValue, $number: MathValue, $max: MathValue) =>
     math.clamp([$min, $number, $max], false),
@@ -107,8 +107,8 @@ function rgbaImpl({ args }: { args: ArgumentListValue }) {
   return new RgbValue(channels, alpha);
 }
 
-export const rgb = Callable.create('rgb', '$args...', rgbaImpl);
-export const rgba = Callable.create('rgba', '$args...', rgbaImpl);
+export const rgb = create('rgb', '$args...', rgbaImpl);
+export const rgba = create('rgba', '$args...', rgbaImpl);
 
 function toHSLValue(value: Value) {
   return value.assertType('numeric').value;
@@ -122,5 +122,5 @@ function hslaImpl({ args }: { args: ArgumentListValue }) {
   return new HslValue(channels, alpha);
 }
 
-export const hsl = Callable.create('hsl', '$args...', hslaImpl);
-export const hsla = Callable.create('hsla', '$args...', hslaImpl);
+export const hsl = create('hsl', '$args...', hslaImpl);
+export const hsla = create('hsla', '$args...', hslaImpl);

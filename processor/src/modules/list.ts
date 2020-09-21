@@ -1,5 +1,4 @@
 import { Value, StringValue, ListValue } from '../Values';
-import { List } from '../Ast';
 
 const AUTO = new StringValue<'auto'>('auto');
 

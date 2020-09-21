@@ -17,28 +17,28 @@ describe('@use', () => {
         },
       },
     ],
-    [
-      `@use './other' as other;`,
-      {
-        'other.$bar': { node: new NumericValue(1, 'px') },
-        'other.$foo': { node: new RgbValue('red') },
-        'other.%baz': {
-          identifier: 'baz',
-          selector: Selectors.class`hey`,
-          composes: [],
-        },
-      },
-    ],
-    [
-      `@use './other' import (
-        $bar as $baz,
-        $foo
-      );`,
-      {
-        $baz: { node: new NumericValue(1, 'px') },
-        $foo: { node: new RgbValue('red') },
-      },
-    ],
+    // [
+    //   `@use './other' as other;`,
+    //   {
+    //     'other.$bar': { node: new NumericValue(1, 'px') },
+    //     'other.$foo': { node: new RgbValue('red') },
+    //     'other.%baz': {
+    //       identifier: 'baz',
+    //       selector: Selectors.class`hey`,
+    //       composes: [],
+    //     },
+    //   },
+    // ],
+    // [
+    //   `@use './other' import (
+    //     $bar as $baz,
+    //     $foo
+    //   );`,
+    //   {
+    //     $baz: { node: new NumericValue(1, 'px') },
+    //     $foo: { node: new RgbValue('red') },
+    //   },
+    // ],
   ])('should import variables for: %s', async (css, expected) => {
     const scope = new Scope();
 

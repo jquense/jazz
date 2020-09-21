@@ -1568,6 +1568,12 @@ export type MixinAtRule = AtRule & {
   parameterList: ParameterList;
 };
 
+export type FunctionAtRule = AtRule & {
+  name: 'function';
+  mixin: Ident;
+  parameterList: ParameterList;
+};
+
 export type IncludeAtRule = AtRule & {
   name: 'include';
   callExpressions: CallExpression[];
@@ -1590,6 +1596,7 @@ export type StatementNode =
   | ElseAtRule
   | IfAtRule
   | MixinAtRule
+  | FunctionAtRule
   | IncludeAtRule
   | ComposeAtRule
   | ElseAtRule

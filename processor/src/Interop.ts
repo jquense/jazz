@@ -64,6 +64,13 @@ export function parseParameters(fn: Function): ParameterList {
   return list;
 }
 
+export type InferableValue =
+  | string
+  | number
+  | InferableValue[]
+  | Map<InferableValue, InferableValue>
+  | {};
+
 export function fromJs(value: unknown): Value {
   if (isValue(value)) {
     return value;
@@ -143,80 +150,3 @@ export function fromJs(value: unknown): Value {
 
 //   return params;
 // }
-
-const parser = new Parser();
-
-export interface ResolvedArguments {
-  positionals: Value[];
-  keywords: Record<string, Value>;
-}
-
-export type ResolvedParameters = Record<string, Value | undefined>;
-
-export class Callable extends Function {
-  static create(
-    name: string,
-    parameters: string,
-    func: (specified: Record<string, Value | undefined>) => Value | void,
-  ): Callable {
-    const { params } = parser.callable(`${name}(${parameters!})`);
-
-    return new Callable(name, params, func!, false);
-  }
-
-  static fromFunction(
-    name: string | undefined,
-    func: (...any: Value[]) => Value | void,
-  ): Callable {
-    return new Callable(name ?? func.name, parseParameters(func), func, true);
-  }
-
-  constructor(
-    name: string,
-    public params: ParameterList,
-    public fn: Function,
-    private spreadArgs: boolean,
-  ) {
-    super();
-    Object.defineProperty(this, 'name', {
-      value: name,
-    });
-
-    return new Proxy(this, {
-      apply(target, _this: any, [args]: [ResolvedParameters]) {
-        return target.call(args);
-      },
-    });
-  }
-
-  call(args: ResolvedParameters) {
-    const { parameters, rest } = this.params;
-    if (this.spreadArgs) {
-      const array = [] as Array<Value | undefined>;
-      parameters.forEach(({ name }) => {
-        array.push(args[name.name]);
-      });
-
-      if (rest) {
-        const restValues = args[rest.name.name] as
-          | ArgumentListValue
-          | undefined;
-        if (restValues) {
-          if (restValues.keywords.size) {
-            throw new SyntaxError(
-              `No argument(s) named ${Object.keys(restValues.keywords).join(
-                ', ',
-              )}`,
-            );
-          }
-
-          array.push(...(restValues as any));
-        }
-      }
-
-      return this.fn(...array);
-    }
-
-    return this.fn(args);
-  }
-}

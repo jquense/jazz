@@ -3,7 +3,7 @@ import { uniqBy } from 'lodash';
 import postcss, { AtRule, ChildNode, Declaration, Root, Rule } from 'postcss';
 
 import * as Ast from './Ast';
-import { ResolvedArguments } from './Interop';
+import { fromJs } from './Interop';
 import ModuleMembers from './ModuleMembers';
 import Scope, { MixinMember } from './Scope';
 import {
@@ -21,8 +21,7 @@ import {
   isCalcValue,
   stringifyList,
 } from './Values';
-import * as globals from './builtins';
-import { isBuiltin, loadBuiltIn } from './modules';
+import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
 import * as math from './utils/Math';
 import { IdentifierScope } from './utils/Scoping';
@@ -33,6 +32,7 @@ import {
   SelectorVisitor,
   StatementVisitor,
 } from './visitors';
+import { ResolvedArguments } from './Callable';
 
 type AnyNode = postcss.Node | Ast.Node;
 
@@ -65,6 +65,9 @@ const isExportRule = (n: Ast.StatementNode): n is Ast.ExportAtRule =>
 
 const isComposeRule = (n: Ast.StatementNode): n is Ast.ComposeAtRule =>
   n.type === 'atrule' && n.name === 'compose';
+
+const isFunctionRule = (n: Ast.StatementNode): n is Ast.FunctionAtRule =>
+  n.type === 'atrule' && n.name === 'function';
 
 const isMixinRule = (n: Ast.StatementNode): n is Ast.MixinAtRule =>
   n.type === 'atrule' && n.name === 'mixin';
@@ -140,7 +143,7 @@ export default class Evaluator
     this.identifierScope = identifierScope;
     this.loadModuleMembers = loadModuleMembers;
     this.parser = parser || new Parser();
-    const scope = new Scope({ closure: true });
+    const scope = createRootScope();
 
     if (initialScope) {
       this.currentScope = initialScope;
@@ -148,16 +151,6 @@ export default class Evaluator
     } else {
       this.currentScope = scope;
     }
-
-    scope.setFunction('min', globals.min);
-    scope.setFunction('max', globals.max);
-    scope.setFunction('clamp', globals.clamp);
-
-    scope.setFunction('rgb', globals.rgb);
-    scope.setFunction('rgba', globals.rgba);
-
-    scope.setFunction('hsl', globals.hsl);
-    scope.setFunction('hsla', globals.hsla);
   }
 
   private withClosure(fn: (scope: Scope) => void): void;
@@ -169,6 +162,7 @@ export default class Evaluator
     fn?: (scope: Scope) => void,
   ) {
     let scope = parentOrfn as Scope;
+    let old = this.currentScope;
 
     if (typeof parentOrfn === 'function' && !fn) {
       scope = this.currentScope;
@@ -180,7 +174,8 @@ export default class Evaluator
     try {
       fn!(this.currentScope);
     } finally {
-      this.currentScope = this.currentScope.close()!;
+      this.currentScope.close()!;
+      this.currentScope = old;
     }
   }
 
@@ -260,6 +255,7 @@ export default class Evaluator
 
     if (isIfRule(node)) return this.visitIfRule(node);
     if (isEachRule(node)) return this.visitEachRule(node);
+    if (isFunctionRule(node)) return this.visitFunctionRule(node);
     if (isMixinRule(node)) return this.visitMixinRule(node);
     if (isIncludeRule(node)) return this.visitIncludeRule(node);
     if (isComposeRule(node)) return this.visitComposeRule(node);
@@ -429,6 +425,17 @@ export default class Evaluator
 
       current = next as Ast.StatementNode;
     }
+  }
+
+  visitFunctionRule(node: Ast.FunctionAtRule) {
+    const callable = node.clone({
+      parameterList: node.parameterList,
+      mixin: node.mixin,
+    });
+
+    // this.currentScope.setMixin(callable.mixin.value, callable);
+
+    node.remove();
   }
 
   visitMixinRule(node: Ast.MixinAtRule) {
@@ -1112,7 +1119,7 @@ export default class Evaluator
 
       return closest(`${node.callee}`, fns, 1);
     };
-    // assume a css function grumble
+    // assume a css function...grumble
     if (member) {
       if (member.callable) {
         const params: Record<string, Value | undefined> = {};
@@ -1123,8 +1130,7 @@ export default class Evaluator
           params[key.name] = value;
         }
 
-        // console.log(member.callable);
-        const result = member.callable.call(params);
+        const result = fromJs(member.callable(params));
 
         return result;
       }
@@ -1178,7 +1184,7 @@ export default class Evaluator
         params[key.name] = value;
       }
 
-      return member.callable.call(params);
+      return fromJs(member.callable(params));
     } finally {
       this.inCalc--;
     }
@@ -1187,6 +1193,7 @@ export default class Evaluator
   private *resolveParameters(
     paramList: Ast.ParameterList,
     args: ResolvedArguments,
+    resolveDefaults?: true,
   ): Generator<[Ast.Variable, Value | undefined]> {
     const { positionals, keywords } = args!;
 
@@ -1214,7 +1221,10 @@ export default class Evaluator
         if (param.defaultValue.type === 'unknown-default-value') {
           yield [param.name, undefined];
         } else {
-          yield [param.name, param.defaultValue.accept(this)];
+          yield [
+            param.name,
+            resolveDefaults ? param.defaultValue.accept(this) : undefined,
+          ];
         }
       } else {
         throw SyntaxError(`Missing argument ${paramName}.`);

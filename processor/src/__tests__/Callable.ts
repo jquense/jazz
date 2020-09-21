@@ -8,17 +8,13 @@ import {
   UnknownDefaultValue,
   Variable,
 } from '../Ast';
-import { Callable, parseParameters } from '../Interop';
-import {
-  ArgumentListValue,
-  ListValue,
-  NullValue,
-  NumericValue,
-} from '../Values';
+import { parseParameters } from '../Interop';
+import * as Callable from '../Callable';
+import { ArgumentListValue, ListValue, NumericValue } from '../Values';
 
 const v = (n: string) => new Variable(n);
 
-describe('interop', () => {
+describe('Callable interop', () => {
   test.each([
     [
       new ParameterList([
@@ -84,23 +80,23 @@ describe('interop', () => {
 
   describe('Callable', () => {
     it('should look like a function', () => {
-      const callable = Callable.fromFunction(
+      const callable = Callable.create(
         'type-of',
         (a, b, c) => new ListValue([a, b, c]),
       );
 
       expect(callable instanceof Function).toEqual(true);
-      expect(callable instanceof Callable).toEqual(true);
+      expect(callable.name).toEqual('type-of');
     });
 
     it('should spread arguments', () => {
-      const callable = Callable.fromFunction(
+      const callable = Callable.create(
         'type-of',
         (a, b, c) => new ListValue([a, b, c]),
       );
 
       expect(
-        callable.call({
+        callable({
           a: new NumericValue(1),
           c: new NumericValue(3),
         }),
@@ -114,14 +110,12 @@ describe('interop', () => {
     });
 
     it('should pass as named', () => {
-      const callable = Callable.create(
-        'type-of',
-        '$args...',
-        ({ args }) => args,
-      );
+      const callable = Callable.create('type-of', '$args...', ({ args }) => {
+        return args;
+      });
 
       expect(
-        callable.call({
+        callable({
           args: new ArgumentListValue([
             new NumericValue(1),
             new NumericValue(3),

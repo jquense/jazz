@@ -132,6 +132,12 @@ export class PostcssParser extends CssParser {
         (current as Ast.MixinAtRule).parameterList = callable.params;
         break;
       }
+      case 'function': {
+        const callable = this.parser.callable(params, loc);
+        (current as Ast.FunctionAtRule).mixin = callable.name;
+        (current as Ast.FunctionAtRule).parameterList = callable.params;
+        break;
+      }
       case 'include': {
         const expr = this.parser.callExpressions(params, true, loc);
         (current as Ast.IncludeAtRule).callExpressions = expr;

@@ -3,7 +3,7 @@ import ModuleMembers, { ClassReferenceMember } from '../../ModuleMembers';
 import Scope from '../../Scope';
 
 describe('@composes', () => {
-  it('should compse local classes', async () => {
+  it('should compose local classes', async () => {
     const { css: result, exports } = await process(
       css`
         .d {

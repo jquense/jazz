@@ -1,4 +1,4 @@
-import { Callable } from '../Interop';
+import * as Callable from '../Callable';
 import {
   ArgumentListValue,
   HslValue,

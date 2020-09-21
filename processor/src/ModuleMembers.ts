@@ -1,5 +1,6 @@
 import * as Ast from './Ast';
-import type { Callable } from './Interop';
+import type { Callable } from './Callable';
+import Scope from './Scope';
 import type { Value } from './Values';
 
 export type VariableMember = {
@@ -23,12 +24,14 @@ export type FunctionMember = {
   source?: string;
   callable: Callable;
   node?: Ast.CallableDeclaration;
+  scope?: Scope;
 };
 
 export type MixinMember = {
   type: 'mixin';
   source?: string;
   node: Ast.MixinAtRule;
+  scope: Scope;
 };
 
 export type Content = {

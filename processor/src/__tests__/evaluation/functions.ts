@@ -1,4 +1,8 @@
-import { css, evaluate } from '../../../test/helpers';
+import { css, evaluate, process, Selectors } from '../../../test/helpers';
+import ModuleMembers from '../../ModuleMembers';
+import * as Callable from '../../Callable';
+import Scope from '../../Scope';
+import { StringValue } from '../../Values';
 
 describe('function evaluation', () => {
   it('should leave unknown funcs alone', async () => {
@@ -157,5 +161,53 @@ describe('function evaluation', () => {
         }
       `);
     });
+  });
+
+  it.skip('scopes parameters correctly', async () => {
+    const spy = jest.fn();
+
+    const { css: result } = await process(
+      css`
+        $a: blue;
+        @use './other' as o;
+
+        .d {
+          a: o.my-func();
+        }
+      `,
+      {
+        modules: [
+          [
+            'other',
+            {
+              scope: new Scope(),
+              exports: new ModuleMembers([
+                [
+                  'my-func',
+                  {
+                    type: 'function',
+                    identifier: 'my-func',
+                    callable: Callable.create(
+                      'my-func',
+                      '$a: red, $b: $a',
+                      ({ a, b }) => {
+                        // console.log(args);
+                        return [a, b];
+                      },
+                    ),
+                  },
+                ],
+              ]),
+            },
+          ],
+        ],
+      },
+    );
+
+    expect(result).toMatchCss(`
+      .d {
+        a: red, red;
+      }
+    `);
   });
 });

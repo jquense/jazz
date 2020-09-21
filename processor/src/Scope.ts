@@ -1,7 +1,7 @@
 import { Root } from 'postcss';
 
 import * as Ast from './Ast';
-import type { Callable } from './Interop';
+import { Callable } from './Callable';
 import ModuleMembers, { Member } from './ModuleMembers';
 import type { Value } from './Values';
 
