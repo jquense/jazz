@@ -25,18 +25,7 @@ describe('@mixin', () => {
     expect(scope.members.get('foo')).toEqual({
       type: 'mixin',
       source: undefined,
-      node: expect.objectContaining({
-        type: 'atrule',
-        name: 'mixin',
-        mixin: new Ast.Ident('foo'),
-        parameterList: new Ast.ParameterList(),
-        nodes: [
-          expect.objectContaining({
-            prop: 'color',
-            value: 'red',
-          }),
-        ],
-      }),
+      callable: expect.any(Function),
     });
   });
 
@@ -50,7 +39,7 @@ describe('@mixin', () => {
       `,
       scope,
     );
-    expect(scope.getMixin('a')!.node.parameterList).toEqual(expected);
+    expect(scope.getMixin('a')!.callable.params).toEqual(expected);
   }
 
   test.each([

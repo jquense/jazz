@@ -1,11 +1,6 @@
-import escape from 'escape-string-regexp';
-import { uniqBy } from 'lodash';
-import postcss, { AtRule, ChildNode, Declaration, Root, Rule } from 'postcss';
-
 import * as Ast from './Ast';
 import { fromJs } from './Interop';
-import ModuleMembers from './ModuleMembers';
-import Scope, { MixinMember } from './Scope';
+import Scope from './Scope';
 import {
   ArgumentListValue,
   BinaryMathExpression,
@@ -21,34 +16,68 @@ import {
   isCalcValue,
   stringifyList,
 } from './Values';
-import { createRootScope } from './modules';
 import * as math from './utils/Math';
 import { closest } from './utils/closest';
 import interleave from './utils/interleave';
 import { ExpressionVisitor } from './visitors';
-import { ResolvedArguments } from './Callable';
+import { ResolvedArguments, ResolvedParameters } from './Callable';
 
 export type Options = {
-  scope?: Scope;
+  scope: Scope;
 };
 
 export default class EvaluateExpression implements ExpressionVisitor<Value> {
-  private inCalc = 0;
+  protected inCalc = 0;
 
-  private currentScope: Scope;
+  currentScope: Scope;
 
-  constructor({ scope = createRootScope() }: Options) {
+  constructor({ scope }: Options) {
     this.currentScope = scope;
   }
 
-  visitPlaceholderSelector(node: Ast.PlaceholderSelector): Ast.ClassSelector {
-    const member = this.currentScope.getClassReference(node.toString());
+  protected withClosure<T>(fn: (scope: Scope) => T): T;
+  protected withClosure<T>(parentScope: Scope, fn: (scope: Scope) => T): T;
+  protected withClosure<T>(
+    parentOrfn: Scope | ((scope: Scope) => T),
+    fn?: (scope: Scope) => T,
+  ) {
+    let scope = parentOrfn as Scope;
+    let old = this.currentScope;
 
-    if (!member) {
-      throw new Error(`Referenced external class is not defined ${node}`);
+    if (typeof parentOrfn === 'function' && !fn) {
+      scope = this.currentScope;
+      fn = parentOrfn;
     }
 
-    return member.selector;
+    this.currentScope = scope.createChildScope(true);
+
+    try {
+      return fn!(this.currentScope);
+    } finally {
+      this.currentScope.close()!;
+      this.currentScope = old;
+    }
+  }
+
+  withScope<T>(scope: Scope, fn: (scope: Scope) => T): T {
+    let old = this.currentScope;
+
+    this.currentScope = scope;
+    try {
+      return fn!(this.currentScope);
+    } finally {
+      this.currentScope = old;
+    }
+  }
+
+  protected withChildScope<T>(fn: (scope: Scope) => T): T {
+    this.currentScope = this.currentScope.createChildScope(false);
+
+    try {
+      return fn!(this.currentScope);
+    } finally {
+      this.currentScope = this.currentScope.close()!;
+    }
   }
 
   visitVariable(node: Ast.Variable): Value {
@@ -309,17 +338,17 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
     // assume a css function...grumble
     if (member) {
       if (member.callable) {
-        const params: Record<string, Value | undefined> = {};
-        for (const [key, value] of this.resolveParameters(
-          member.callable.params,
-          args,
-        )) {
-          params[key.name] = value;
+        const params = this.resolveParameters(member.callable.params, args);
+
+        let result = member.callable(params);
+
+        if (result === undefined) {
+          throw node.error(
+            `Function ${member.identifier} did not return a value`,
+          );
         }
 
-        const result = fromJs(member.callable(params));
-
-        return result;
+        return fromJs(result);
       }
     } else if (node.callee.namespace) {
       const bestGuess = suggestFunction();
@@ -363,13 +392,7 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
 
       const member = this.currentScope.getFunction(name.value)!;
 
-      const params: Record<string, Value | undefined> = {};
-      for (const [key, value] of this.resolveParameters(
-        member.callable.params,
-        args,
-      )) {
-        params[key.name] = value;
-      }
+      const params = this.resolveParameters(member.callable.params, args);
 
       return fromJs(member.callable(params));
     } finally {
@@ -377,17 +400,47 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
     }
   }
 
-  protected *resolveParameters(
+  callWithScopedParameters<T>(
+    paramList: Ast.ParameterList,
+    params: ResolvedParameters,
+    fn: (args: ResolvedParameters) => T,
+  ) {
+    return this.withClosure((scope) => {
+      for (const param of paramList.parameters) {
+        let name = param.name.name;
+        let provided = params[name];
+
+        if (
+          provided === undefined &&
+          param.defaultValue &&
+          param.defaultValue.type !== 'unknown-default-value'
+        ) {
+          provided = params[name] = param.defaultValue.accept(this);
+        }
+        if (provided) scope.setVariable(param.name, provided);
+      }
+      if (paramList.rest) {
+        scope.setVariable(
+          paramList.rest.name.name,
+          params[paramList.rest.name.name]!,
+        );
+      }
+
+      return fn(params);
+    });
+  }
+
+  protected resolveParameters(
     paramList: Ast.ParameterList,
     args: ResolvedArguments,
-    resolveDefaults?: true,
-  ): Generator<[Ast.Variable, Value | undefined]> {
+  ): ResolvedParameters {
     const { positionals, keywords } = args!;
 
     const kwargs = new Set(Object.keys(keywords));
     const params = paramList.parameters;
     const numPositionals = positionals.length;
 
+    let result: ResolvedParameters = {};
     for (const [idx, param] of params.entries()) {
       // name without $
       const paramName = param.name.name;
@@ -400,34 +453,28 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
           );
         }
 
-        yield [param.name, positionals[idx]];
+        result[param.name.name] = positionals[idx];
       } else if (kwargs.has(paramName)) {
         kwargs.delete(paramName);
-        yield [param.name, keywords[paramName]!];
+        result[param.name.name] = keywords[paramName]!;
       } else if (param.defaultValue) {
-        if (param.defaultValue.type === 'unknown-default-value') {
-          yield [param.name, undefined];
-        } else {
-          yield [
-            param.name,
-            resolveDefaults ? param.defaultValue.accept(this) : undefined,
-          ];
-        }
+        result[param.name.name] = undefined;
       } else {
         throw SyntaxError(`Missing argument ${paramName}.`);
       }
     }
 
     if (paramList.rest) {
-      yield [
-        paramList.rest.name,
-        new ArgumentListValue(positionals.slice(params.length), keywords),
-      ];
+      result[paramList.rest.name.name] = new ArgumentListValue(
+        positionals.slice(params.length),
+        keywords,
+      );
     } else if (kwargs.size) {
       throw new SyntaxError(
         `No argument(s) named ${Array.from(kwargs).join(', ')}`,
       );
     }
+    return result;
   }
 
   protected evaluateArguments(node: Ast.ArgumentList): ResolvedArguments {

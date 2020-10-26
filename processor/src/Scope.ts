@@ -3,6 +3,7 @@ import { Root } from 'postcss';
 import * as Ast from './Ast';
 import { Callable } from './Callable';
 import ModuleMembers, { Member } from './ModuleMembers';
+import type { MixinCallable } from './UserDefinedCallable';
 import type { Value } from './Values';
 
 export {
@@ -161,7 +162,7 @@ export default class Scope {
     });
   }
 
-  setMixin(name: string, node: Ast.MixinAtRule) {
-    return this.set(new Ast.Ident(name), { type: 'mixin', node });
+  setMixin(name: string, callable: MixinCallable) {
+    return this.set(new Ast.Ident(name), { type: 'mixin', callable });
   }
 }

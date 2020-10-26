@@ -1,6 +1,7 @@
 import * as Ast from './Ast';
 import type { Callable } from './Callable';
 import Scope from './Scope';
+import type { MixinCallable } from './UserDefinedCallable';
 import type { Value } from './Values';
 
 export type VariableMember = {
@@ -30,8 +31,7 @@ export type FunctionMember = {
 export type MixinMember = {
   type: 'mixin';
   source?: string;
-  node: Ast.MixinAtRule;
-  scope: Scope;
+  callable: MixinCallable;
 };
 
 export type Content = {

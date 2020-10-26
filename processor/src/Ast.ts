@@ -1570,8 +1570,13 @@ export type MixinAtRule = AtRule & {
 
 export type FunctionAtRule = AtRule & {
   name: 'function';
-  mixin: Ident;
+  functionName: Ident;
   parameterList: ParameterList;
+};
+
+export type ReturnAtRule = AtRule & {
+  name: 'return';
+  returnValue: Expression;
 };
 
 export type IncludeAtRule = AtRule & {
@@ -1597,6 +1602,7 @@ export type StatementNode =
   | IfAtRule
   | MixinAtRule
   | FunctionAtRule
+  | ReturnAtRule
   | IncludeAtRule
   | ComposeAtRule
   | ElseAtRule

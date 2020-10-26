@@ -163,9 +163,7 @@ describe('function evaluation', () => {
     });
   });
 
-  it.skip('scopes parameters correctly', async () => {
-    const spy = jest.fn();
-
+  it('scopes parameters correctly', async () => {
     const { css: result } = await process(
       css`
         $a: blue;
@@ -209,5 +207,81 @@ describe('function evaluation', () => {
         a: red, red;
       }
     `);
+  });
+
+  describe('user defined', () => {
+    it('should work', async () => {
+      expect(
+        await evaluate(
+          css`
+            $red: red;
+
+            @function is-red($color: $red) {
+              @if $color == red {
+                @return true;
+              } @else {
+                @return false;
+              }
+            }
+
+            .foo {
+              a: is-red(red);
+              b: is-red(blue);
+              c: is-red();
+            }
+          `,
+        ),
+      ).toMatchCss(css`
+        .foo {
+          a: true;
+          b: false;
+          c: true;
+        }
+      `);
+    });
+
+    it('should break from loops', async () => {
+      expect(
+        await evaluate(
+          css`
+            $red: red;
+
+            @function my-func($color) {
+              @if $color == red {
+                @each $i in 0 through 10 {
+                  @if $i >= 4 {
+                    @return $i;
+                  }
+                }
+              }
+            }
+
+            .foo {
+              a: my-func(red);
+            }
+          `,
+        ),
+      ).toMatchCss(css`
+        .foo {
+          a: 4;
+        }
+      `);
+    });
+
+    it('should throw when no return value', async () => {
+      await expect(() =>
+        evaluate(css`
+          @function is-red($color: $red) {
+            @if $color == red {
+              @return true;
+            }
+          }
+
+          .a {
+            a: is-red(blue);
+          }
+        `),
+      ).rejects.toThrow('Function is-red did not return a value');
+    });
   });
 });

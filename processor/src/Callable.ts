@@ -2,6 +2,9 @@ import { ParameterList } from './Ast';
 import { InferableValue, parseParameters } from './Interop';
 import { ArgumentListValue, Value } from './Values';
 import Parser from './parsers';
+import EvaluateExpression from './Expression';
+import Scope from './Scope';
+import { ExpressionVisitor } from './visitors';
 
 const parser = new Parser();
 
@@ -30,22 +33,24 @@ interface Options<T extends (...args: any) => any> {
   params: ParameterList;
   fn: T;
   spreadArgs: boolean;
+  visitor?: EvaluateExpression;
 }
 
-function paramify<T extends (...args: any) => any>({
+export function paramify<T extends (...args: any) => any>({
   name,
   spreadArgs,
   params,
   fn,
+  visitor = new EvaluateExpression({ scope: new Scope({ closure: true }) }),
 }: Options<T>) {
-  function wrapped(
-    args: ResolvedParameters,
-    // visitor?: ExpressionVisitor<Value>,
-  ): ReturnType<T> {
+  function wrapped(args: ResolvedParameters): ReturnType<T> {
     const { parameters, rest } = params;
 
+    // this isn't strictly the right time to evaluate for default params, but
+    // currently we only set spreadArgs to false when parsing params from a string
+    // all other cases handle defaults via JS's natural function behavior
     if (!spreadArgs) {
-      return fn(args);
+      return visitor.callWithScopedParameters(params, args, fn);
     }
 
     const array = [] as Array<Value | undefined>;
@@ -98,13 +103,13 @@ function create<
   TReturn extends Value | InferableValue
 >(
   name: string,
-  parameters: string,
+  parameters: string | ParameterList,
   fn: Func<TArgs, TReturn>,
 ): Callable<Func<TArgs, TReturn>>;
 
 function create<TReturn extends Value | InferableValue>(
   name: string | SpreadFunc<TReturn>,
-  parameters?: string | SpreadFunc<TReturn>,
+  parameters?: string | ParameterList | SpreadFunc<TReturn>,
   fn?: Func<ResolvedParameters, TReturn>,
 ) {
   let func: SpreadFunc<TReturn> | Func<ResolvedParameters, TReturn>;
@@ -128,12 +133,16 @@ function create<TReturn extends Value | InferableValue>(
     func = parameters;
     params = isCallable(func) ? func.params : parseParameters(func);
   } else {
+    const parseParams = typeof parameters === 'string';
     if (typeof name !== 'string') throw new Error('Name must be a string');
-    if (typeof parameters !== 'string')
-      throw new Error('Parameters must be a string');
+    if (!parseParams && (parameters as any)?.type !== 'parameter-list')
+      throw new Error('Parameters must be a string or ParameterList');
     if (typeof fn !== 'function') throw new Error('fn must be a Function');
-    ({ params } = parser.callable(`${name}(${parameters!})`));
+
     func = fn;
+    if (parseParams) ({ params } = parser.callable(`${name}(${parameters!})`));
+    else params = parameters as ParameterList;
+
     spreadArgs = false;
   }
 

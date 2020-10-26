@@ -83,6 +83,8 @@ export class PostcssParser extends CssParser {
   }
 
   atrule(tokens: any) {
+    const tokenName: string = tokens[1]?.slice(1);
+
     if (tokens[1] === '@else') {
       this.ifElseRule(tokens);
     } else {
@@ -93,6 +95,11 @@ export class PostcssParser extends CssParser {
     if (!current) {
       if (this.current.last?.type === 'atrule') current = this.current.last;
       else return;
+    }
+    if (tokenName === 'return' && current.name !== 'return') {
+      current = current.nodes?.find(
+        (n): n is postcss.AtRule => n.type === 'atrule' && n.name === 'return',
+      )!;
     }
 
     const { name } = current;
@@ -134,8 +141,15 @@ export class PostcssParser extends CssParser {
       }
       case 'function': {
         const callable = this.parser.callable(params, loc);
-        (current as Ast.FunctionAtRule).mixin = callable.name;
+        (current as Ast.FunctionAtRule).functionName = callable.name;
         (current as Ast.FunctionAtRule).parameterList = callable.params;
+        break;
+      }
+      case 'return': {
+        (current as Ast.ReturnAtRule).returnValue = this.parser.expression(
+          params,
+          loc,
+        );
         break;
       }
       case 'include': {
