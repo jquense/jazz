@@ -189,7 +189,6 @@ describe('function evaluation', () => {
                       'my-func',
                       '$a: red, $b: $a',
                       ({ a, b }) => {
-                        // console.log(args);
                         return [a, b];
                       },
                     ),
