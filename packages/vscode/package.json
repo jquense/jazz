@@ -12,22 +12,33 @@
   "contributes": {
     "languages": [
       {
-        "id": "unc-css",
+        "id": "jazz",
         "aliases": [
           "",
-          "unc-css"
+          "jazz"
         ],
         "extensions": [
-          ".mcss"
+          ".mcss",
+          ".jazz"
         ],
         "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
       {
-        "language": "unc-css",
+        "language": "jazz",
         "scopeName": "source.css.mcss",
-        "path": "./syntaxes/unc-css.tmLanguage.json"
+        "path": "./syntaxes/jazz.tmLanguage.json"
+      },
+      {
+        "injectTo": [
+          "source.svelte"
+        ],
+        "scopeName": "source.jazz-svelte",
+        "path": "./syntaxes/jazz-svelte.json",
+        "embeddedLanguages": {
+          "source.css.jazz": "jazz"
+        }
       }
     ]
   }
