@@ -1,0 +1,35 @@
+{
+  "name": "svelte",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": {
+    "directory": "packages/svelte",
+    "type": "git",
+    "url": "https://github.com/jquense/unnamed-css-preprocessor.git"
+  },
+  "author": "4Catalyzer",
+  "license": "MIT",
+  "scripts": {
+    "tdd": "jest --watch",
+    "test": "jest"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "jest": {
+    "preset": "@4c/jest-preset",
+    "testEnvironment": "node"
+  },
+  "devDependencies": {
+    "@4c/cli": "^2.1.12",
+    "@4c/jest-preset": "^1.5.3",
+    "@4c/prettier-config": "^1.1.0",
+    "jest": "^26.0.0"
+  },
+  "dependencies": {
+    "escape-string-regexp": "^4.0.0",
+    "is-url": "^1.2.4",
+    "jazzjs": "*",
+    "slash": "^3.0.0"
+  }
+}

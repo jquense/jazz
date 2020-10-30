@@ -9,7 +9,6 @@ import {
   Variable,
 } from './Ast';
 import {
-  ArgumentListValue,
   ListValue,
   MapValue,
   NullValue,
@@ -18,7 +17,6 @@ import {
   StringValue,
   Value,
 } from './Values';
-import Parser from './parsers';
 import { map } from './utils/itertools';
 
 const isValue = (node?: any): node is Value =>
@@ -30,11 +28,21 @@ export type ParamsList = [Param[], string | null];
 
 const cleanName = (name: string) => name.replace(/^\$/, '');
 
-export function parseParameters(fn: Function): ParameterList {
-  const expression = acorn.parseExpressionAt(fn.toString(), 0, {
+function parse(str: string) {
+  return acorn.parseExpressionAt(str, 0, {
     ecmaVersion: 11,
     allowAwaitOutsideFunction: true,
-  }) as any;
+  });
+}
+
+export function parseParameters(fn: (...args: any[]) => any): ParameterList {
+  const str = fn.toString();
+  let expression = parse(str) as any;
+
+  // short-hand methods stringify oddly
+  if (!expression.params) {
+    expression = parse(`function ${fn}`);
+  }
 
   const list = new ParameterList();
 
@@ -69,7 +77,7 @@ export type InferableValue =
   | number
   | InferableValue[]
   | Map<InferableValue, InferableValue>
-  | {};
+  | Record<string, unknown>;
 
 export function fromJs(value: unknown): Value {
   if (isValue(value)) {

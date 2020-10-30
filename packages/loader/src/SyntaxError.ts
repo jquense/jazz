@@ -1,4 +1,4 @@
-import type { CssSyntaxError } from 'unnamed-css-preprocessor';
+import type { CssSyntaxError } from 'jazzjs';
 
 class McssSyntaxError extends Error {
   constructor(error: CssSyntaxError) {

@@ -1,9 +1,9 @@
 import { DepGraph } from 'dependency-graph';
 
-const leaves = (graph: DepGraph<string>) => graph.overallOrder(true);
+const leaves = (graph: DepGraph<any>) => graph.overallOrder(true);
 
 // Clone the graph and break the graph into tiers for further processing
-export default (graph: DepGraph<string>) => {
+export default (graph: DepGraph<any>) => {
   const clone = graph.clone();
   const tiers = [];
 

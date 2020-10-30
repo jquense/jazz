@@ -1,7 +1,8 @@
 {
-  "name": "unc-syntax",
-  "displayName": "unc-syntax",
+  "name": "jazz-syntax",
+  "displayName": "Jazz Syntax Theme",
   "description": "",
+  "publisher": "monasticpanic",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.47.0"
@@ -27,7 +28,7 @@
     "grammars": [
       {
         "language": "jazz",
-        "scopeName": "source.css.mcss",
+        "scopeName": "source.css.jazz",
         "path": "./syntaxes/jazz.tmLanguage.json"
       },
       {

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 
 import * as MemFS from 'memfs';
+import { Volume } from 'memfs/lib/volume';
 import postcss from 'postcss';
 
 import {
@@ -13,7 +14,7 @@ import {
   UniversalSelector,
 } from '../src/Ast';
 import ModuleMembers from '../src/ModuleMembers';
-import Processor from '../src/Processor';
+import Processor, { Resolver } from '../src/Processor';
 import Scope from '../src/Scope';
 import valuePlugin from '../src/plugins/value-processing';
 import { createResolver } from '../src/resolvers/node';
@@ -30,7 +31,7 @@ interface Options {
   hash?: boolean;
   scope?: Scope;
   exports?: ModuleMembers;
-  modules?: [string, Module][];
+  modules?: [string, Partial<Module>][];
 }
 
 export async function process(cssStr: string, options: Options = {}) {
@@ -56,11 +57,23 @@ export async function process(cssStr: string, options: Options = {}) {
       [
         './test.mcss',
         {
+          type: 'jazzcss',
           scope,
           exports,
         },
       ],
-      ...modules,
+      ...modules.map(
+        ([key, m]) =>
+          [
+            key,
+            {
+              scope: new Scope(),
+              exports: new ModuleMembers(),
+              type: 'jazzcss',
+              ...m,
+            },
+          ] as [string, Module],
+      ),
     ]),
   };
 
@@ -111,8 +124,8 @@ function parseFixtures(
   const [json, _] = hrx(fs.readFileSync(hrxFile).toString());
 
   const memFs = MemFS.Volume.fromJSON(json);
-  let fired: boolean = false;
-  let callback = (obj: any) => {
+  let fired = false;
+  const callback = (obj: any) => {
     fired = true;
     return cb(obj);
   };
@@ -135,7 +148,7 @@ function parseFixtures(
       else if (file === 'options.json') {
         options = JSON.parse(memFs.readFileSync(absFile).toString());
       } else if (memFs.statSync(absFile).isDirectory()) {
-        let ran = run(absFile);
+        run(absFile);
       }
     }
 
@@ -160,37 +173,48 @@ function parseFixtures(
   }
 }
 
+export function createMemoryResolver(memFs: Volume): Resolver {
+  const fileResolver = createResolver({ fileSystem: memFs });
+  return (url, opts) => {
+    const r = fileResolver(url, opts);
+    return r
+      ? {
+          ...r,
+          content: memFs.readFileSync(r.file, 'utf8') as string,
+        }
+      : false;
+  };
+}
+
 export function runFixture(hrxFile: string) {
-  try {
-    parseFixtures(
-      hrxFile,
-      ({ fs: memFs, name, input, output, exports, error, options }) => {
-        it(name, async () => {
-          const processor = new Processor({
-            ...options,
-            namer: (file, id) => `${pathName(file)}_${id}`,
-            loadFile: (id) => memFs.readFileSync(id, 'utf8') as string,
-            resolvers: [createResolver({ fileSystem: memFs })],
-          });
-
-          try {
-            await processor.file(input);
-            const result = await processor.output({ to: 'output.css' });
-
-            if (output) {
-              expect(result.css).toMatchCss(output);
-            }
-            if (exports) {
-              expect(result.exports).toEqual(exports);
-            }
-          } catch (err) {
-            if (error) expect(err.message).toMatch(error);
-            else throw err;
-          }
+  parseFixtures(
+    hrxFile,
+    ({ fs: memFs, name, input, output, exports, error, options }) => {
+      it(name, async () => {
+        const processor = new Processor({
+          ...options,
+          namer: (file, id) => `${pathName(file)}_${id}`,
+          resolvers: [createMemoryResolver(memFs)],
         });
-      },
-    );
-  } catch (err) {
-    throw err;
-  }
+
+        try {
+          await processor.add(
+            input,
+            memFs.readFileSync(input, 'utf8') as string,
+          );
+          const result = await processor.output({ to: 'output.css' });
+
+          if (output) {
+            expect(result.css).toMatchCss(output);
+          }
+          if (exports) {
+            expect(result.exports).toEqual(exports);
+          }
+        } catch (err) {
+          if (error) expect(err.message).toMatch(error);
+          else throw err;
+        }
+      });
+    },
+  );
 }

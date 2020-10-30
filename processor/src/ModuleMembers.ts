@@ -1,6 +1,6 @@
 import * as Ast from './Ast';
 import type { Callable } from './Callable';
-import Scope from './Scope';
+import type Scope from './Scope';
 import type { MixinCallable } from './UserDefinedCallable';
 import type { Value } from './Values';
 
@@ -75,7 +75,7 @@ export default class ModuleMembers extends Map<string, Member> {
           ...member.composes.map((c) => String(c.name)),
         ].join(' ');
       else if (member.type === 'variable') {
-        json[member.identifier] = String(member.node);
+        json[`$${member.identifier}`] = member.node.toJSON();
       }
     }
 

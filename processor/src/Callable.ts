@@ -4,7 +4,6 @@ import { ArgumentListValue, Value } from './Values';
 import Parser from './parsers';
 import EvaluateExpression from './Expression';
 import Scope from './Scope';
-import { ExpressionVisitor } from './visitors';
 
 const parser = new Parser();
 

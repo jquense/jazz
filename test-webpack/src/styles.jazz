@@ -1,0 +1,10 @@
+
+@use './root';
+@use './config.js' import theme;
+
+.app {
+  color: theme('colors.blue')
+}
+
+
+

@@ -6,8 +6,8 @@ import Tracer from 'pegjs-backtrace';
 import postcss from 'postcss';
 
 import * as Ast from '../Ast';
+import { Location, getPosition } from './location';
 import { IParseOptions, parse } from './parser';
-import { getPosition, Location } from './location';
 
 type ParseOptions = {
   offset?: Location;
@@ -46,8 +46,16 @@ class Parser {
     });
   }
 
-  import(params: string, options?: ParseOptions): Ast.Import {
-    return this.parse(params, { ...options, startRule: 'imports' });
+  import(params: string, options?: ParseOptions): string | null {
+    try {
+      return this.parse(params, { ...options, startRule: 'imports' });
+    } catch (err) {
+      return null;
+    }
+  }
+
+  use(params: string, options?: ParseOptions): Ast.Import {
+    return this.parse(params, { ...options, startRule: 'uses' });
   }
 
   export(params: string, options?: ParseOptions): Ast.Export {
@@ -69,7 +77,7 @@ class Parser {
       const { source, offset } = parseOptions;
       const { line, column } = getPosition(offset, err.location.start);
 
-      throw source?.error(err.message, line, column);
+      throw source?.error(err.message, line, column) ?? err;
     }
   }
 

@@ -1,4 +1,5 @@
 import * as Ast from './Ast';
+import type { ResolvedArguments, ResolvedParameters } from './Callable';
 import { fromJs } from './Interop';
 import Scope from './Scope';
 import {
@@ -16,15 +17,23 @@ import {
   isCalcValue,
   stringifyList,
 } from './Values';
+import JazzSyntaxError from './utils/JazzSyntaxError';
 import * as math from './utils/Math';
 import { closest } from './utils/closest';
 import interleave from './utils/interleave';
 import { ExpressionVisitor } from './visitors';
-import { ResolvedArguments, ResolvedParameters } from './Callable';
 
 export type Options = {
   scope: Scope;
 };
+
+function catchAndThrowFromNode<T>(node: Ast.Node, fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw node.error(err.message);
+  }
+}
 
 export default class EvaluateExpression implements ExpressionVisitor<Value> {
   protected inCalc = 0;
@@ -36,13 +45,15 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
   }
 
   protected withClosure<T>(fn: (scope: Scope) => T): T;
+
   protected withClosure<T>(parentScope: Scope, fn: (scope: Scope) => T): T;
+
   protected withClosure<T>(
     parentOrfn: Scope | ((scope: Scope) => T),
     fn?: (scope: Scope) => T,
   ) {
     let scope = parentOrfn as Scope;
-    let old = this.currentScope;
+    const old = this.currentScope;
 
     if (typeof parentOrfn === 'function' && !fn) {
       scope = this.currentScope;
@@ -54,13 +65,13 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
     try {
       return fn!(this.currentScope);
     } finally {
-      this.currentScope.close()!;
+      this.currentScope.close();
       this.currentScope = old;
     }
   }
 
   withScope<T>(scope: Scope, fn: (scope: Scope) => T): T {
-    let old = this.currentScope;
+    const old = this.currentScope;
 
     this.currentScope = scope;
     try {
@@ -338,9 +349,11 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
     // assume a css function...grumble
     if (member) {
       if (member.callable) {
-        const params = this.resolveParameters(member.callable.params, args);
+        const params = catchAndThrowFromNode(node, () =>
+          this.resolveParameters(member.callable.params, args),
+        );
 
-        let result = member.callable(params);
+        const result = member.callable(params);
 
         if (result === undefined) {
           throw node.error(
@@ -392,7 +405,9 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
 
       const member = this.currentScope.getFunction(name.value)!;
 
-      const params = this.resolveParameters(member.callable.params, args);
+      const params = catchAndThrowFromNode(node, () =>
+        this.resolveParameters(member.callable.params, args),
+      );
 
       return fromJs(member.callable(params));
     } finally {
@@ -407,7 +422,7 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
   ) {
     return this.withClosure((scope) => {
       for (const param of paramList.parameters) {
-        let name = param.name.name;
+        const { name } = param.name;
         let provided = params[name];
 
         if (
@@ -440,7 +455,7 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
     const params = paramList.parameters;
     const numPositionals = positionals.length;
 
-    let result: ResolvedParameters = {};
+    const result: ResolvedParameters = {};
     for (const [idx, param] of params.entries()) {
       // name without $
       const paramName = param.name.name;
@@ -448,9 +463,10 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
       // let expr;
       if (idx < numPositionals) {
         if (kwargs.has(paramName)) {
-          throw new SyntaxError(
-            `Argument ${param.name} was passed both by position and by name.`,
-          );
+          throw new JazzSyntaxError({
+            message: `Argument ${param.name} was passed both by position and by name.`,
+            word: String(param.name),
+          });
         }
 
         result[param.name.name] = positionals[idx];
@@ -460,7 +476,10 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
       } else if (param.defaultValue) {
         result[param.name.name] = undefined;
       } else {
-        throw SyntaxError(`Missing argument ${paramName}.`);
+        throw new JazzSyntaxError({
+          message: `Missing argument $${paramName}.`,
+          word: `$${paramName}`,
+        });
       }
     }
 
@@ -470,8 +489,10 @@ export default class EvaluateExpression implements ExpressionVisitor<Value> {
         keywords,
       );
     } else if (kwargs.size) {
-      throw new SyntaxError(
-        `No argument(s) named ${Array.from(kwargs).join(', ')}`,
+      throw new JazzSyntaxError(
+        `No argument(s) named ${Array.from(kwargs, (k) => `$${k}`).join(
+          ', ',
+        )}`,
       );
     }
     return result;

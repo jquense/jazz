@@ -1,4 +1,9 @@
-import { Resolver, AsyncResolver, ResolverOptions } from '../types';
+import {
+  AsyncResolver,
+  ResolvedResource,
+  Resolver,
+  ResolverOptions,
+} from '../types';
 import nodeResolver from './node';
 
 export const isPromise = <T>(value: any | Promise<T>): value is Promise<T> =>
@@ -7,14 +12,15 @@ export const isPromise = <T>(value: any | Promise<T>): value is Promise<T> =>
 async function resolveAsyncResolvers(
   url: string,
   opts: ResolverOptions,
-  initial: Promise<string | false>,
+  initial: Promise<ResolvedResource | false>,
   resolvers: Array<Resolver | AsyncResolver>,
 ) {
   let result = await initial;
   if (result) return result;
 
   for (const resolver of resolvers) {
-    const result = await resolver(url, opts);
+    // eslint-disable-next-line no-await-in-loop
+    result = await resolver(url, opts);
     if (result) return result;
   }
   return false;
@@ -30,7 +36,6 @@ function mergeResolvers(
   const allResolvers = [...resolvers, nodeResolver];
 
   return ((url: string, opts: ResolverOptions) => {
-    let pendingResult = null;
     for (const [idx, resolver] of allResolvers.entries()) {
       const result = resolver(url, opts);
       if (isPromise(result)) {

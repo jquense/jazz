@@ -1,31 +1,35 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable max-classes-per-file */
 /* eslint-disable no-await-in-loop */
 
 import path from 'path';
 
 import { DepGraph as Graph } from 'dependency-graph';
 import postcss, { CssSyntaxError } from 'postcss';
-
 // @ts-ignore
 import slug from 'unique-slug';
 
-import ModuleMembers from './ModuleMembers';
-import Scope from './Scope';
+import { JazzFile, ProcessingFile, ScriptFile } from './File';
 import mergeResolvers from './resolvers';
 import type {
-  File,
-  ModularCSSOpts,
-  Module,
-  ProcessingFile,
-  Resolver,
   AsyncResolver,
+  File,
+  Module,
+  ResolvedResource,
+  Resolver,
 } from './types';
-import { inferEvaluationScope, inferIdenifierScope } from './utils/Scoping';
+import { isStyleFile } from './utils/Scoping';
 import graphTiers from './utils/graph-tiers';
 
 const sepRegex = /\\/g;
 
-export type { File, Module, ProcessingFile, Resolver, CssSyntaxError };
+export type {
+  Module,
+  File,
+  ProcessingFile,
+  Resolver,
+  AsyncResolver,
+  CssSyntaxError,
+};
 
 // Get a relative version of an absolute path w/ cross-platform/URL-friendly
 // directory separators
@@ -66,7 +70,7 @@ const DEFAULTS = {
   icssCompatible: false,
   loadFile: defaultLoadFile,
 
-  namer: () => ``,
+  // namer: () => ``,
   // postcss: {},
   resolvers: [],
   rewrite: true,
@@ -86,33 +90,29 @@ class Processor {
 
   readonly resolvedRequests = new Map<string, string>();
 
-  readonly graph = new Graph<string>();
+  readonly graph = new Graph<ResolvedResource>();
 
   private ids = new Map<any, any>();
 
-  private before: postcss.Processor;
-
-  private process: postcss.Processor;
-
-  private resolver: AsyncResolver;
+  readonly resolver: AsyncResolver;
 
   constructor(opts: Partial<Options> = {}) {
     /* eslint max-statements: [ "warn", 25 ] */
-    const options: Options = {
+    const options: Partial<Options> = {
       ...DEFAULTS,
       ...opts,
     };
 
-    this.options = options;
-
-    if (!path.isAbsolute(options.cwd)) {
-      options.cwd = path.resolve(options.cwd);
+    if (!path.isAbsolute(options.cwd!)) {
+      options.cwd = path.resolve(options.cwd!);
     }
 
     if (typeof options.namer !== 'function') {
       options.namer = (file: string, selector: string) =>
-        `mc${slug(relative(options.cwd, file))}_${selector}`;
+        `mc${slug(relative(options.cwd!, file))}_${selector}`;
     }
+
+    this.options = options as Options;
 
     this.log = options.verbose
       ? // eslint-disable-next-line no-console
@@ -122,69 +122,38 @@ class Processor {
 
     this.loadFile = options.loadFile;
 
-    this.resolver = mergeResolvers(options.resolvers);
+    this.resolver = mergeResolvers(this.options.resolvers);
 
     this.normalize = normalizePath.bind(null, options.cwd);
-
-    this.before = postcss([require('./plugins/dependency-graph').default]);
-
-    this.process = postcss([require('./plugins/value-processing').default]);
   }
 
-  private postcssOptions({
-    from,
-    ...args
-  }: { from: string } & Partial<ModularCSSOpts>) {
-    const { options, graph } = this;
-    const modules = new Map<string, Module>();
+  // async file(file: string) {
+  //   const id = this.normalize(file);
 
-    this.files.forEach((value, key) => {
-      modules.set(key, value.module);
-    });
+  //   this.log('file()', id);
 
-    return {
-      ...options,
-      from,
-      modules,
-      moduleGraph: graph,
-      identiferScope: inferIdenifierScope(from),
-      evaluationContext: inferEvaluationScope(from),
-      parser: require('./parsers/postcss').default,
-      resolve: (url: string) => {
-        const file = this.files.get(from);
-        return file?.requests.get(url);
-      },
-      ...args,
-    };
-  }
+  //   const text = await this.loadFile(id);
 
-  async file(file: string) {
-    const id = this.normalize(file);
+  //   return this._add(id, text);
+  // }
 
-    this.log('file()', id);
+  // // Add a file by name + contents to the dependency graph
+  // string(file: string, text: string) {
+  //   const id = this.normalize(file);
 
-    const text = await this.loadFile(id);
+  //   this.log('string()', id);
 
-    return this._add(id, text);
-  }
+  //   return this._add(id, text);
+  // }
 
-  // Add a file by name + contents to the dependency graph
-  string(file: string, text: string) {
-    const id = this.normalize(file);
+  // // Add an existing postcss Root object by name
+  // root(file: string, root: postcss.Root) {
+  //   const id = this.normalize(file);
 
-    this.log('string()', id);
+  //   this.log('root()', id);
 
-    return this._add(id, text);
-  }
-
-  // Add an existing postcss Root object by name
-  root(file: string, root: postcss.Root) {
-    const id = this.normalize(file);
-
-    this.log('root()', id);
-
-    return this._add(id, root);
-  }
+  //   return this._add(id, root);
+  // }
 
   // Check if a file exists in the currently-processed set
   has(input: string) {
@@ -267,7 +236,8 @@ class Processor {
     const results = [];
 
     for (const dep of files) {
-      results.push(this.files.get(dep)!.result!);
+      const file = this.files.get(dep)!;
+      if (file.module.type !== 'jazzscript') results.push(file.result!);
     }
 
     // Clone the first result if available to get valid source information
@@ -318,8 +288,11 @@ class Processor {
       get: () => {
         const json: Record<string, Record<string, string>> = {};
         this.files.forEach(({ module }, key) => {
-          json[relative(this.options.cwd, key)] = module.exports.toJSON();
+          if (module.type !== 'jazzscript')
+            json[relative(this.options.cwd, key)] = module.exports.toJSON();
         });
+
+        return json;
       },
     });
 
@@ -328,10 +301,11 @@ class Processor {
     };
   }
 
-  private async _add(id: string, src: string | postcss.Root): Promise<File> {
-    const check = id.toLowerCase();
+  async add(file: string, content?: string): Promise<File> {
+    const id = this.normalize(file);
 
     // Warn about potential dupes if an ID goes past we've seen before
+    const check = id.toLowerCase();
     if (this.options.dupewarn) {
       const other = this.ids.get(check);
 
@@ -350,29 +324,16 @@ class Processor {
 
     this.log('_add()', id);
 
-    await this._walk(id, src);
+    await this.walk(id, content);
 
     const deps = [...this.graph.dependenciesOf(id), id];
 
+    // XXX: promise.all() ?
     for (const dep of deps) {
-      const file = this.files.get(dep)!;
-
-      if (!file.processed) {
-        this.log('process()', dep);
-
-        file.processed = this.process.process(
-          file.before,
-          this.postcssOptions({
-            from: dep,
-            namer: this.options.namer,
-          }),
-        );
-      }
-
-      file.result = await file.processed;
+      await this.files.get(dep)!.process();
     }
 
-    const { module, text, result, valid } = this.files.get(id)!;
+    const { module, result, valid } = this.files.get(id)!;
 
     const values: Record<string, string> = {};
     const selectors: Record<string, string[]> = {};
@@ -389,84 +350,69 @@ class Processor {
     });
 
     return {
-      text,
+      type: module.type,
       module,
       valid,
       values,
       selectors,
       result: result!,
+      get exports() {
+        return module.exports.toJSON();
+      },
     };
   }
 
   // Process files and walk their composition/value dependency tree to find
   // new files we need to process
-  async _walk(name: string, src: string | postcss.Root) {
+  private async walk(name: string, content?: string) {
     // No need to re-process files unless they've been marked invalid
     if (this.files.get(name)?.valid) {
       // Do want to wait until they're done being processed though
-      await this.files.get(name)!.walked;
+      await this.files.get(name)!.ready;
 
       return;
     }
 
-    this.graph.addNode(name, '');
+    const resource: ResolvedResource = { file: name, content };
+    this.graph.addNode(name, resource);
 
     this.log('before()', name);
 
-    let walked: () => void;
-
-    const file: ProcessingFile = {
-      // @ts-ignore
-      text: typeof src === 'string' ? src : src.source!.input.css,
-      valid: true,
-      module: {
-        scope: new Scope(),
-        exports: new ModuleMembers(),
-      },
-      requests: new Map<string, string>(),
-      before: this.before.process(
-        src,
-        this.postcssOptions({
-          from: name,
-          // @ts-expect-error resolve allows async in before
-          resolve: (url) =>
-            this.resolver(url, { from: name, cwd: this.options.cwd }),
-        }),
-      ),
-      walked: new Promise((done) => {
-        walked = done;
-      }),
-    };
+    const file = isStyleFile(name)
+      ? new JazzFile(name, content, this)
+      : new ScriptFile(name, content, this);
 
     this.files.set(name, file);
 
-    await file.before;
+    const deps = await file.collectDependencies();
 
-    // Add all the found dependencies to the graph
-    file.before.messages.forEach(({ plugin, dependency, request }) => {
-      if (plugin !== 'modular-css-graph-nodes') {
-        return;
-      }
-
-      const dep = this.normalize(dependency);
-
-      file.requests.set(request, dep);
-      this.graph.addNode(dep, '');
-      this.graph.addDependency(name, dep);
-    });
+    for (const dep of deps) {
+      this.graph.addNode(dep.file, dep);
+      this.graph.addDependency(name, dep.file);
+    }
 
     // Walk this node's dependencies, reading new files from disk as necessary
     await Promise.all(
       this.graph.dependenciesOf(name).map(async (dependency) => {
+        const depData = this.graph.getNodeData(dependency);
         const dep = this.files.get(dependency);
 
-        await (dep?.valid ? dep.walked : this.file(dependency));
+        await (dep?.valid
+          ? dep.ready
+          : this.add(depData.file, depData.content));
       }),
     );
 
     // Mark the walk of this file & its dependencies complete
-    walked!();
+    file.complete();
   }
+}
+
+export async function render(file: string, content?: string, opts?: Options) {
+  const p = new Processor(opts);
+  await p.add(file, content);
+
+  return p.output();
 }
 
 export default Processor;

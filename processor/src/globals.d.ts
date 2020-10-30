@@ -68,7 +68,14 @@ declare module 'postcss-scss/lib/scss-parser' {
   import type { Container, Declaration, ChildNode } from 'postcss';
   import type Input from 'postcss/lib/input';
 
-  export type Token = [string, string, number, number, number, number];
+  export type Token = [
+    tokenType: string,
+    token: string,
+    startLine?: number,
+    startCol?: number,
+    endLine?: number,
+    endCol?: number,
+  ];
 
   interface Tokenizer {
     nextToken(): Token | undefined;

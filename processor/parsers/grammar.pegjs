@@ -151,11 +151,6 @@ function "function"
   = name:(ident / namespaced_ident) "(" { return name; }
 
 
-// any_value
-//   = (Interpolation / [^:!(){}] / escape)+
-//   / "(" b:any_value* ")" { return ['(', ...b.flat(), ')'] }
-//   / "{" b:any_value* "}" { return ["{" , ...b.flat(),"}"] }
-
 almost_any_value
   = chars:(Interpolation / [^;!{}])* {
     return init(Ast.StringTemplate.fromTokens(chars))
@@ -630,7 +625,7 @@ from_source
 
 // Import
 
-imports
+uses
   = source:string _ specifiers:(ImportSpecifiers) _ {
     return init(Ast.Import, source, specifiers)
   }
@@ -715,6 +710,15 @@ ExportSpecifiers
   }
   / _ "(" _ head:ExportSpecifier tail:(_ "," _ ref:ExportSpecifier { return ref; })* _ ")" _ {
     return [head].concat(tail);
+  }
+
+
+// CSS Import
+imports
+  = _ url:string _ {
+    return url.endsWith('.css') ||
+      url.startsWith('https://') ||
+      url.startsWith('http://') ? null : url
   }
 
 

@@ -2,7 +2,7 @@ export type IdentifierScope = 'global' | 'local';
 
 export type EvaluationScope = 'preprocess' | 'css' | 'modular-css';
 
-export const topLevelExtension = '.mcss';
+export const topLevelExtension = '.jazz';
 
 export const extensions = [
   `.global${topLevelExtension}`,
@@ -20,3 +20,8 @@ export function inferEvaluationScope(filename: string): EvaluationScope {
 
   return 'preprocess';
 }
+
+export const isStyleFile = (file: string) =>
+  file.endsWith(topLevelExtension) ||
+  file.endsWith('.css') ||
+  file.endsWith('.mcss');

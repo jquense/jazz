@@ -7,8 +7,7 @@ import slug from 'unique-slug';
 
 import Evaluator from '../Evaluate';
 import Parser from '../parsers';
-// @ts-ignore
-import { PostcssPlugin } from '../types';
+import type { PostcssPlugin } from '../types';
 
 const defaultNamer = (filename: string, selector: string) => {
   // return `i_${selector}`;
@@ -27,25 +26,28 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
     namer = defaultNamer,
   } = opts;
 
-  const file = modules.get(from!)!;
+  const module = modules.get(from!)!;
 
   const parser = Parser.get(css, opts);
 
   const members = Evaluator.evaluate(css, {
     outputIcss: icssCompatible,
     namer: (str: string) => namer(from!, str),
-    loadModuleMembers: (request: string) => {
+    loadModule: (request: string) => {
       const resolved = resolve(request);
 
-      // console.log(request, modules, from, resolve(from, request));
-      return resolved ? modules.get(resolved)?.exports : undefined;
+      return {
+        module: resolved ? modules.get(resolved) : undefined,
+        // FIXME: this is weird here, if it's absolute tho tests are hard
+        resolved: resolved && path.relative(path.dirname(from), resolved),
+      };
     },
-    initialScope: file.scope,
+    initialScope: module.scope,
     identifierScope,
     parser,
   });
 
-  file.exports.addAll(members);
+  module.exports.addAll(members);
 };
 
 // importsPlugin.postcssPlugin = 'modular-css-values-local';

@@ -1,6 +1,7 @@
 lib/
 es/
 
+.yarn/
 # Logs
 logs
 *.log

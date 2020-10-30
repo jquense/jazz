@@ -1,3 +1,9 @@
+#!/usr/bin/env node
+
+import { promises as fs } from 'fs';
+import path from 'path';
+
+import type { Register } from 'ts-node';
 import yargs from 'yargs';
 
 import Processor from './Processor';
@@ -10,10 +16,32 @@ const {
   .alias('h', 'help')
   .parse(process.argv.slice(2));
 
-const processor = new Processor();
+// let tsCompiler: Register;
+
+const processor = new Processor({
+  // loadFile: async (id) => {
+  //   let content = await fs.readFile(id, 'utf-8');
+  //   if (path.extname(id).match(/\.tsx?/)) {
+  //     // eslint-disable-next-line @typescript-eslint/no-var-requires
+  //     tsCompiler = tsCompiler || require('ts-node').create();
+  //     content = tsCompiler.compile(`require('ts-node')();\n${content}`, id);
+  //   }
+  //   return content;
+  // },
+});
 
 (async () => {
-  await processor.file(input);
+  await processor.add(input);
 
-  // processor.o
+  const { css, exports } = await processor.output();
+
+  fs.mkdir(path.dirname(output), { recursive: true });
+
+  fs.writeFile(output, css);
+  if (exports) {
+    fs.writeFile(
+      output.replace(path.extname(output), '.json'),
+      JSON.stringify(exports, null, 2),
+    );
+  }
 })();

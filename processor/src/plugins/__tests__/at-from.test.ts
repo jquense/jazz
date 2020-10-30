@@ -92,7 +92,7 @@ describe('@use', () => {
 
   it.each([
     [`@use './none' import $baz, $foo`, 'Could not resolve module ./none'],
-    [`@use './other' import $baz, $foo`, '"./other" does not export $baz'],
+    [`@use './other' import $baz, $foo`, '"other" does not export $baz'],
   ])('should throw variables for: %s', async (css, error) => {
     await expect(() =>
       evaluate(css, {

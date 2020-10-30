@@ -1,7 +1,8 @@
 import postcss from 'postcss';
-import type { Callable, ResolvedParameters } from './Callable';
+
 import { FunctionAtRule, MixinAtRule, ParameterList } from './Ast';
-import Evaluator from './Evaluate';
+import type { Callable, ResolvedParameters } from './Callable';
+import type Evaluator from './Evaluate';
 import type Scope from './Scope';
 import breakOnReturn from './utils/breakOnReturn';
 import detach from './utils/detach';
@@ -16,7 +17,10 @@ export function mixin(
   localScope: Scope,
   visitor: Evaluator,
 ): MixinCallable {
-  const mixin = (args: ResolvedParameters, content: postcss.Root | null) => {
+  const userMixin = (
+    args: ResolvedParameters,
+    content: postcss.Root | null,
+  ) => {
     return visitor.withScope(localScope, () => {
       return visitor.callWithScopedParameters(node.parameterList, args, () => {
         if (content) visitor.currentScope.contentBlock = content;
@@ -30,8 +34,8 @@ export function mixin(
     });
   };
 
-  mixin.params = node.parameterList;
-  return mixin;
+  userMixin.params = node.parameterList;
+  return userMixin;
 }
 
 export function func(
@@ -39,7 +43,7 @@ export function func(
   localScope: Scope,
   visitor: Evaluator,
 ) {
-  const func = (args: ResolvedParameters) => {
+  const userFunc = (args: ResolvedParameters) => {
     return visitor.withScope(localScope, () => {
       return visitor.callWithScopedParameters(node.parameterList, args, () => {
         const body = detach(node);
@@ -50,6 +54,6 @@ export function func(
       });
     });
   };
-  func.params = node.parameterList;
-  return func as Callable;
+  userFunc.params = node.parameterList;
+  return userFunc as Callable;
 }

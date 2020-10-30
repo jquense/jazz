@@ -56,6 +56,14 @@ export abstract class BaseValue {
     return true;
   }
 
+  toJs() {
+    return this as any;
+  }
+
+  toJSON(): any {
+    return this.toString();
+  }
+
   toArray(): Value[] {
     return [this as any];
   }
@@ -102,6 +110,14 @@ export class StringValue<T extends string = string> extends BaseValue {
     return !this.quote && this.value.startsWith('var(--');
   }
 
+  toJs() {
+    return this.toJSON();
+  }
+
+  toJSON() {
+    return this.value;
+  }
+
   toString() {
     return this.quote ? `${this.quote}${this.value}${this.quote}` : this.value;
   }
@@ -116,6 +132,14 @@ export class NullValue extends BaseValue {
   type = 'null' as const;
 
   readonly value = null;
+
+  toJs() {
+    return this.toJSON();
+  }
+
+  toJSON() {
+    return null;
+  }
 
   toString() {
     return 'null';
@@ -135,6 +159,14 @@ export class BooleanValue extends BaseValue {
 
   constructor(public value: boolean) {
     super();
+  }
+
+  toJs() {
+    return this.toJSON();
+  }
+
+  toJSON() {
+    return this.value;
   }
 
   toString() {
@@ -171,6 +203,14 @@ export class NumericValue extends BaseValue {
     }
 
     return true;
+  }
+
+  toJs() {
+    return this.toJSON();
+  }
+
+  toJSON() {
+    return this.value;
   }
 
   toString() {
@@ -249,7 +289,8 @@ export function stringifyList(elements: Value[], separator?: Separator) {
   return result;
 }
 
-abstract class BaseList<T extends Value = Value> extends Array<T>
+abstract class BaseList<T extends Value = Value>
+  extends Array<T>
   implements BaseValue {
   abstract type: 'list' | 'arglist';
 
@@ -304,6 +345,14 @@ abstract class BaseList<T extends Value = Value> extends Array<T>
     return this;
   }
 
+  toJs(): any[] {
+    return this.map((value) => value.toJs());
+  }
+
+  toJSON(): any[] {
+    return this.map((value) => value.toJSON());
+  }
+
   assertType<T extends VALUE_TYPE>(
     type: T,
     title?: string,
@@ -354,6 +403,21 @@ export class MapValue<K extends Value = Value, V extends Value = Value>
   extends Map<K, V>
   implements BaseValue {
   type = 'map' as const;
+
+  toJs() {
+    const map = new Map();
+    for (const [key, value] of this.entries()) {
+      map.set(key.toJs(), value.toJs());
+    }
+    return map;
+  }
+
+  toJSON(): Record<string, unknown> {
+    return Object.fromEntries(
+      // key is toJSON also so strings don't contain extra quotes
+      Array.from(this.entries(), ([k, v]) => [k.toJSON(), v.toJSON()]),
+    );
+  }
 
   toArray() {
     let i = 0;
@@ -406,6 +470,7 @@ export class MapValue<K extends Value = Value, V extends Value = Value>
     assertType(this as Value, type, title);
     return this as any;
   }
+
   //   hashCode() {
   //     let t1, hash, key;
 

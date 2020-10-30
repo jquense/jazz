@@ -13,6 +13,7 @@ const generate = async () => {
       format: 'commonjs',
       allowedStartRules: [
         'imports',
+        'uses',
         'exports',
         'values',
         'declaration_prop',

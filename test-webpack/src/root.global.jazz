@@ -1,0 +1,8 @@
+@use './config.js' import $config;
+
+body {
+  background-color: rebeccapurple;
+}
+
+
+@export $config

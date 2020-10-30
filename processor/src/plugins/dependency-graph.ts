@@ -2,10 +2,19 @@
 // import mcssGraph from '@modular-css/processor/plugins/before/graph-nodes';
 import type postcss from 'postcss';
 
-import { ComposeAtRule, ExportAtRule, UseAtRule, StatementNode } from '../Ast';
-import { PostcssPlugin, BeforeModularCSSOpts } from '../types';
+import {
+  ComposeAtRule,
+  ExportAtRule,
+  ImportAtRule,
+  StatementNode,
+  UseAtRule,
+} from '../Ast';
+import type { BeforeModularCSSOpts, PostcssPlugin } from '../types';
 
-const plugin = 'modular-css-graph-nodes';
+const plugin = 'jazz-dependencies';
+
+const isImportRule = (n: StatementNode): n is ImportAtRule =>
+  n.type === 'atrule' && n.name === 'import';
 
 const isUseRule = (n: StatementNode): n is UseAtRule =>
   n.type === 'atrule' && n.name === 'use';
@@ -22,9 +31,12 @@ const isPromise = <T>(value: any | Promise<T>): value is Promise<T> =>
 const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
   const { resolve, from } = result.opts as BeforeModularCSSOpts;
 
-  let results = [] as Promise<void>[];
+  const results = [] as Promise<void>[];
 
-  const pushMessage = (source: string | undefined, rule: postcss.Node) => {
+  const pushMessage = (
+    source: string | null | undefined,
+    rule: postcss.AtRule,
+  ) => {
     if (!source) {
       return;
     }
@@ -46,7 +58,7 @@ const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
           }
 
           result.messages.push({
-            type: 'unanmed-css-processor',
+            type: rule.name,
             plugin,
             request: source,
             dependency: resolved,
@@ -55,7 +67,7 @@ const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
       );
     } else {
       result.messages.push({
-        type: 'unanmed-css-processor',
+        type: rule.name,
         plugin,
         request: source,
         dependency,
@@ -64,7 +76,12 @@ const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
   };
 
   css.walkAtRules((rule: postcss.AtRule) => {
-    if (isExportRule(rule) || isUseRule(rule) || isComposeRule(rule)) {
+    if (
+      isImportRule(rule) ||
+      isExportRule(rule) ||
+      isUseRule(rule) ||
+      isComposeRule(rule)
+    ) {
       pushMessage(rule.request, rule);
     }
   });

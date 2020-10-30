@@ -24,14 +24,14 @@ $blue: blue;
   red: colors_red;
 }
 /* input.mcss */
-:import("./colors.mcss") {
+:import("colors.mcss") {
   ____a: a;
 }
 .input_a > .colors_red {
   color: blue;
 }
 :export {
-  blue: blue;
+  $blue: blue;
   a: input_a;
 }
 <===> options.json

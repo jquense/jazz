@@ -11,12 +11,13 @@ import type {
   ChildNode,
   ContainerBase,
 } from 'postcss';
+import CssSyntaxError from 'postcss/lib/css-syntax-error';
+import Input from 'postcss/lib/input';
+
+import { Location } from './parsers/location';
 import interleave from './utils/interleave';
 import unvendor from './utils/unvendor';
 import type { ExpressionVisitor, SelectorVisitor } from './visitors';
-import Input from 'postcss/lib/input';
-import CssSyntaxError from 'postcss/lib/css-syntax-error';
-import { Location } from './parsers/location';
 
 const tag = `@@typeof/Node`;
 
@@ -1535,6 +1536,11 @@ export type OtherAtRule = AtRule & {
   type: Exclude<string, 'if' | 'else if'>;
 };
 
+export type ImportAtRule = AtRule & {
+  name: 'import';
+  request: string | null;
+};
+
 export type UseAtRule = AtRule & {
   name: 'use';
   request: string;
@@ -1606,6 +1612,7 @@ export type StatementNode =
   | IncludeAtRule
   | ComposeAtRule
   | ElseAtRule
+  | ImportAtRule
   | UseAtRule
   | ExportAtRule
   | CssAtRule;

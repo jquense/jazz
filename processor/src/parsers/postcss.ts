@@ -1,11 +1,22 @@
 import postcss from 'postcss';
 import CssParser, { Token } from 'postcss-scss/lib/scss-parser';
-// @ts-expect-error
-import tokenizer from './vendor/tokenize';
 import Input from 'postcss/lib/input';
 
 import * as Ast from '../Ast';
 import Parser from './index';
+// @ts-expect-error
+import tokenizer from './vendor/tokenize';
+
+function firstValueWord(tokens: Token[]) {
+  let foundValue = false;
+
+  for (const token of tokens) {
+    if (token[0] === ':') foundValue = true;
+    else if (foundValue && (token[0] === 'word' || token[0] === 'string'))
+      return token;
+  }
+  return undefined;
+}
 
 function identIsLikelyCssVar(node: Ast.Expression) {
   if (node.type === 'ident') return node.value.startsWith('--');
@@ -53,11 +64,9 @@ export class PostcssParser extends CssParser {
 
   decl(tokens: any) {
     // grab before b/c decls can be nested or not
-    const [, , line, column] = tokens[
-      tokens.findIndex((t: any) => t[0] === ':') + 1
-    ];
+    const [, , line = 0, column = 0] = firstValueWord(tokens)!;
 
-    const current = this.current;
+    const { current } = this;
 
     super.decl(tokens);
 
@@ -72,7 +81,7 @@ export class PostcssParser extends CssParser {
     });
 
     input = rawOrProp(added, 'value');
-    let offset = { line, column };
+    const offset = { line, column };
     // this logic is a bit weird but matches Sass, which doesn't evaluate the identifier
     // before deciding how to parse the value
     if (identIsLikelyCssVar(added.ident)) {
@@ -97,7 +106,7 @@ export class PostcssParser extends CssParser {
       else return;
     }
     if (tokenName === 'return' && current.name !== 'return') {
-      current = current.nodes?.find(
+      current = current.nodes!.find(
         (n): n is postcss.AtRule => n.type === 'atrule' && n.name === 'return',
       )!;
     }
@@ -119,8 +128,15 @@ export class PostcssParser extends CssParser {
         (current as Ast.EachAtRule).expression = expr;
         break;
       }
+      case 'import': {
+        (current as Ast.ImportAtRule).request = this.parser.import(
+          params,
+          loc,
+        );
+        break;
+      }
       case 'use': {
-        const { request, specifiers } = this.parser.import(params, loc);
+        const { request, specifiers } = this.parser.use(params, loc);
 
         (current as Ast.UseAtRule).request = request;
         (current as Ast.UseAtRule).specifiers = specifiers;
@@ -185,8 +201,8 @@ export class PostcssParser extends CssParser {
     ) {
       throw this.input.error(
         '@else rules must follow an @if',
-        tokens[2],
-        tokens[3],
+        tokens[2]!,
+        tokens[3]!,
       );
     }
     // eslint-disable-next-line no-cond-assign

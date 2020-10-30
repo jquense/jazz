@@ -2,7 +2,7 @@ import path from 'path';
 
 import resolver, { ResolveOptions } from 'enhanced-resolve';
 
-import { Resolver, AsyncResolver } from '../types';
+import { AsyncResolver, Resolver } from '../types';
 import { extensions } from '../utils/Scoping';
 
 function createResolver(opts?: Partial<ResolveOptions>): Resolver {
@@ -16,8 +16,8 @@ function createResolver(opts?: Partial<ResolveOptions>): Resolver {
   });
 
   return function nodeResolver(url, { from }) {
-    const result = resolve(path.dirname(from), url);
-    return result;
+    const file = resolve(path.dirname(from), url);
+    return file === false ? false : { file };
   };
 }
 
@@ -33,12 +33,12 @@ createResolver.async = (opts?: Partial<ResolveOptions>): AsyncResolver => {
 
   return function nodeAsyncResolver(url, { from }) {
     return new Promise((yes, no) => {
-      resolve(path.dirname(from), url, (err: any, result: string | false) => {
+      resolve(path.dirname(from), url, (err: any, file: string | false) => {
         if (err) {
           no(err);
           return;
         }
-        yes(result);
+        yes(file === false ? false : { file });
       });
     });
   };

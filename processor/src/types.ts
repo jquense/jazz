@@ -1,10 +1,11 @@
+import { DepGraph } from 'dependency-graph';
 import type { LazyResult, ProcessOptions, Result, Root } from 'postcss';
 
+import { ProcessingFile } from './File';
 import type ModuleMembers from './ModuleMembers';
 // eslint-disable-next-line import/no-duplicates
 import type Scope from './Scope';
 import type { EvaluationScope, IdentifierScope } from './utils/Scoping';
-import { DepGraph } from 'dependency-graph';
 
 export type Keys<Obj, Exclude> = {
   [P in keyof Obj]: Obj[P] extends Exclude ? P : never;
@@ -16,32 +17,37 @@ export interface Value {
   source?: string;
 }
 
+export type ModuleType = 'css' | 'jazzcss' | 'jazzscript';
+
 export interface Module {
+  type: ModuleType;
   scope: Scope;
   exports: ModuleMembers;
 }
 
-export interface ProcessingFile {
-  text: string;
-  // values: Record<string, Value>;
+// export interface ProcessingFile {
+//   text: string;
+//   // values: Record<string, Value>;
 
-  module: Module;
+//   module: Module;
 
-  valid: boolean;
-  before: LazyResult;
-  processed?: LazyResult;
-  requests: Map<string, string>;
-  result?: Result;
-  walked: Promise<void>;
-}
+//   valid: boolean;
+//   before: LazyResult;
+//   processed?: LazyResult;
+//   requests: Map<string, string>;
+//   result?: Result;
+//   walked: Promise<void>;
+// }
 
 export interface File {
-  text: string;
+  type: ModuleType;
+  // text: string;
   module: Module;
   valid: boolean;
   result: Result;
   values: Record<string, string>;
   selectors: Record<string, string[]>;
+  readonly exports: Record<string, any>;
 }
 
 export type PostcssProcessOptions = ProcessOptions & ModularCSSOpts;
@@ -67,7 +73,9 @@ export interface ModularCSSOpts {
 }
 
 export interface BeforeModularCSSOpts extends Omit<ModularCSSOpts, 'resolve'> {
-  resolve: (url: string) => string | false | Promise<string | false>;
+  resolve: (
+    url: string,
+  ) => ResolvedResource | false | Promise<ResolvedResource | false>;
 }
 
 export type Variable = {
@@ -80,12 +88,14 @@ export type ResolverOptions = {
   from: string;
 };
 
+export type ResolvedResource = { file: string; content?: string };
+
 export type Resolver = (
   url: string,
   resolverOptions: ResolverOptions,
-) => string | false;
+) => ResolvedResource | false;
 
 export type AsyncResolver = (
   url: string,
   resolverOptions: ResolverOptions,
-) => Promise<string | false>;
+) => Promise<ResolvedResource | false>;

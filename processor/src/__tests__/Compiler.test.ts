@@ -1,8 +1,7 @@
 import { Volume } from 'memfs';
 
-import { css, runFixture } from '../../test/helpers';
+import { createMemoryResolver, css, runFixture } from '../../test/helpers';
 import Compiler, { Options } from '../Processor';
-import { createResolver } from '../resolvers/node';
 
 function trimLineEnd(str: string) {
   return str
@@ -20,20 +19,25 @@ describe('Compiler', () => {
 
         @export $red, $blue;
       `,
+      '/config.js': `
+        module.exports = {
+          PI: Math.PI
+        }
+      `,
     });
 
     return new Compiler({
       ...options,
-      loadFile: (file: string) => fs.readFileSync(file).toString(),
+      // loadFile: (file: string) => fs.readFileSync(file).toString(),
       namer: (_: string, selector: string) => `m_${selector}`,
-      resolvers: [createResolver({ fileSystem: fs })],
+      resolvers: [createMemoryResolver(fs)],
     });
   }
 
   it('should work', async () => {
     const processor = get();
 
-    const details = await processor.string(
+    const details = await processor.add(
       '/entry.mcss',
       `
         @use './colors.mcss' import $red;
@@ -63,10 +67,32 @@ describe('Compiler', () => {
     `);
   });
 
+  it('should import non styles', async () => {
+    const processor = get();
+
+    const details = await processor.add(
+      '/entry.mcss',
+      `
+        @use './config.js' import $PI;
+
+        .foo {
+          color: $PI
+        }
+      `,
+    );
+
+    expect(details.result.css).toMatchCss(`
+      .m_foo {
+        color: ${Math.PI}
+      }
+
+    `);
+  });
+
   it('should have good evaluation errors', async () => {
     const processor = get();
     try {
-      const details = await processor.string(
+      await processor.add(
         '/entry.mcss',
         `
         .foo /* hi */ :global(
@@ -92,7 +118,7 @@ describe('Compiler', () => {
   it('should have good parsing errors', async () => {
     const processor = get();
     try {
-      const details = await processor.string(
+      await processor.add(
         '/entry.mcss',
         `
         @if 1
@@ -117,7 +143,7 @@ describe('Compiler', () => {
   it('should import namespaces', async () => {
     const processor = get();
 
-    const details = await processor.string(
+    const details = await processor.add(
       '/entry.mcss',
       css`
         @use './colors.mcss' as colors;

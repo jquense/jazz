@@ -12,11 +12,21 @@
   "rules": {
     "prettier/prettier": "error",
     "global-require": "off",
+    "max-classes-per-file": "off",
     "import/no-dynamic-require": "off",
     "no-param-reassign": "off",
     "no-underscore-dangle": "off",
     "no-multi-assign": "off",
     "no-nested-ternary": "off",
+    "consistent-return": "off",
     "@typescript-eslint/no-empty-function": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/test-*/**"],
+      "rules": {
+        "import/no-extraneous-dependencies": "off"
+      }
+    }
+  ]
 }

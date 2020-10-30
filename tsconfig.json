@@ -9,6 +9,12 @@
   "references": [
     {
       "path": "www"
+    },
+    {
+      "path": "processor"
+    },
+    {
+      "path": "packages/loader"
     }
   ]
 }

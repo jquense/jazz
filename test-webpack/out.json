@@ -1,0 +1,13 @@
+{
+  "src/styles.jazz": {
+    "app": ""
+  },
+  "src/root.global.jazz": {
+    "$config": {
+      "colors": {
+        "blue": "blue",
+        "red": "blue"
+      }
+    }
+  }
+}

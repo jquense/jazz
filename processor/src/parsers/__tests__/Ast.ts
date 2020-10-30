@@ -12,7 +12,6 @@ import {
   UnaryExpression,
   Variable,
 } from '../../Ast';
-import { calc } from '../helpers';
 
 function stringify(cases: Array<[Node, string] | [Node, string, false]>) {
   cases.forEach(([node, expected]) => {

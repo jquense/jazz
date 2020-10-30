@@ -3,18 +3,18 @@ import { uniqBy } from 'lodash';
 import postcss, { AtRule, ChildNode, Root } from 'postcss';
 
 import * as Ast from './Ast';
+import EvaluateExpression from './Expression';
 import ModuleMembers from './ModuleMembers';
 import Scope from './Scope';
-
-import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import * as UserDefinedCallable from './UserDefinedCallable';
-import Parser from './parsers';
-import { IdentifierScope } from './utils/Scoping';
-import { SelectorVisitor, StatementVisitor } from './visitors';
-import EvaluateExpression from './Expression';
 import { Value } from './Values';
+import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
+import Parser from './parsers';
+import type { Module, ModuleType } from './types';
+import { IdentifierScope } from './utils/Scoping';
 import breakOnReturn from './utils/breakOnReturn';
 import detach from './utils/detach';
+import { SelectorVisitor, StatementVisitor } from './visitors';
 
 type AnyNode = postcss.Node | Ast.Node;
 
@@ -72,12 +72,15 @@ export type Options = {
   initialScope?: Scope;
   parser?: Parser;
   outputIcss?: boolean;
-  loadModuleMembers: (request: string) => ModuleMembers | undefined;
+  loadModule: (
+    request: string,
+  ) => { module: Module | undefined; resolved: string | false };
   identifierScope: IdentifierScope;
   namer: (selector: string) => string;
 };
 
-export default class Evaluator extends EvaluateExpression
+export default class Evaluator
+  extends EvaluateExpression
   implements StatementVisitor<void | Value>, SelectorVisitor<Ast.Selector> {
   private toHoist = new WeakSet<AnyNode>();
 
@@ -100,6 +103,10 @@ export default class Evaluator extends EvaluateExpression
 
   private keyframesRegex?: RegExp;
 
+  private loadModule: (
+    request: string,
+  ) => { module: Module | undefined; resolved: string | false };
+
   private loadModuleMembers: (request: string) => ModuleMembers | undefined;
 
   private outputIcss: boolean | undefined;
@@ -114,14 +121,15 @@ export default class Evaluator extends EvaluateExpression
     identifierScope,
     namer,
     outputIcss,
-    loadModuleMembers,
+    loadModule,
   }: Options) {
     super({ scope: getScope(initialScope) });
 
     this.namer = namer;
     this.outputIcss = outputIcss;
     this.identifierScope = identifierScope;
-    this.loadModuleMembers = loadModuleMembers;
+    this.loadModule = loadModule;
+    this.loadModuleMembers = (request) => loadModule(request).module?.exports;
     this.parser = parser || new Parser();
   }
 
@@ -139,6 +147,7 @@ export default class Evaluator extends EvaluateExpression
         break;
       default:
     }
+    return undefined;
   }
 
   visitStyleSheet(node: Root): ModuleMembers {
@@ -233,20 +242,26 @@ export default class Evaluator extends EvaluateExpression
       node.error('@use rules must come before any other rules');
     }
 
-    const { request, specifiers } = node;
+    let { request, specifiers } = node;
 
     let exports: ModuleMembers;
-    const isBuiltinModule = isBuiltin(request);
 
-    if (isBuiltinModule) {
+    let moduleType: ModuleType;
+
+    if (isBuiltin(request)) {
       exports = loadBuiltIn(request);
+      moduleType = 'jazzscript';
     } else {
-      exports = this.loadModuleMembers(request);
-      if (!exports) {
+      const { module, resolved } = this.loadModule(request);
+      if (!module) {
         throw node.error(`Could not resolve module ${node.request}`, {
           word: node.request,
         });
       }
+
+      request = resolved as string;
+      moduleType = module.type;
+      exports = module.exports;
     }
 
     for (const specifier of specifiers) {
@@ -270,7 +285,7 @@ export default class Evaluator extends EvaluateExpression
       }
     }
 
-    if (this.outputIcss && !isBuiltinModule) {
+    if (this.outputIcss && moduleType === 'jazzcss') {
       node.before(
         postcss.rule({
           selector: `:import("${request}")`,
