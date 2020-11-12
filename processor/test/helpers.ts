@@ -43,19 +43,19 @@ export async function process(cssStr: string, options: Options = {}) {
   } = options;
 
   const postcssOptions: Partial<PostcssProcessOptions> = {
-    parser: require('../src/parsers/postcss').default,
-    from: './test.mcss',
+    parser: require('../src/parsers/jazz-postcss').default,
+    from: './test.jazz',
     source: false,
     trace: true,
     evaluationScope: 'preprocess',
     identifierScope: hash ? 'local' : 'global',
     resolve: (url: string) => {
-      return path.join(path.dirname('./test.mcss'), url);
+      return path.join(path.dirname('./test.jazz'), url);
     },
     namer: (_: string, s: string) => (hash ? `h_${s}` : s),
     modules: new Map([
       [
-        './test.mcss',
+        './test.jazz',
         {
           type: 'jazzcss',
           scope,
@@ -102,9 +102,10 @@ export const Selectors = {
   star: () => new UniversalSelector(),
 };
 
-const pathName = (str: string) => path.basename(str, path.extname(str));
+const pathName = (str: string) =>
+  path.basename(str).replace(/(\.module|\.global)?\.(css|jazz)/, '');
 
-function parseFixtures(
+export function parseFixtures(
   hrxFile: string,
   cb: (obj: {
     fs: typeof MemFS.vol;

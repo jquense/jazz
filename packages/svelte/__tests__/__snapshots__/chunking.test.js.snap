@@ -1,0 +1,235 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`chunking multiple entries: assets/common1-4cf49395.css 1`] = `
+"/* __fixtures__/config.jazz */
+
+/* __fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking multiple entries: assets/common1-daaed2fa.css 1`] = `
+"/* __fixtures__/config.jazz */
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking multiple entries: assets/entry1-413e9ab8.css 1`] = `
+"/* __fixtures__/config.jazz */
+
+/* __fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking multiple entries: common1-a4fb40ae.js 1`] = `
+"var config = {
+\\"$blue\\": \\"blue\\",
+\\"$red\\": \\"red\\"
+};
+
+var css_icss = {};
+
+var entry = {
+\\"app\\": \\"jz469d86a0_app\\"
+};
+
+var msg = 'common';
+
+export { msg as m };
+"
+`;
+
+exports[`chunking multiple entries: common1-de3a58a5.js 1`] = `
+"var config = {
+\\"$blue\\": \\"blue\\",
+\\"$red\\": \\"red\\"
+};
+
+var entry = {
+\\"app\\": \\"jz469d86a0_app\\"
+};
+
+var msg = 'common';
+
+export { msg as m };
+"
+`;
+
+exports[`chunking multiple entries: entry1.js 1`] = `
+"var config = {
+\\"$blue\\": \\"blue\\",
+\\"$red\\": \\"red\\"
+};
+
+var css_icss = {};
+
+var entry = {
+\\"app\\": \\"jz469d86a0_app\\"
+};
+
+var msg = 'common';
+
+console.log(msg);
+"
+`;
+
+exports[`chunking multiple entries: entry2.js 1`] = `
+"import { m as msg } from './common1-a4fb40ae.js';
+
+console.log(msg);
+"
+`;
+
+exports[`chunking should play nice with plugin-css-chunks: assets/entry1-7ce50ebf.css 1`] = `
+"/* packages/svelte/__fixtures__/config.jazz */
+
+/* packages/svelte/__fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* packages/svelte/__fixtures__/entry.jazz */
+.jz8e4185c2_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should play nice with plugin-css-chunks: assets/entry1-74dc416b.css 1`] = `
+"/* __fixtures__/config.jazz */
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should play nice with plugin-css-chunks: assets/entry1-413e9ab8.css 1`] = `
+"/* __fixtures__/config.jazz */
+
+/* __fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should play nice with plugin-css-chunks: entry1.css 1`] = `
+"export default {};
+
+"
+`;
+
+exports[`chunking should play nice with plugin-css-chunks: entry1.js 1`] = `
+"var config = {
+\\"$blue\\": \\"blue\\",
+\\"$red\\": \\"red\\"
+};
+
+var entry = {
+\\"app\\": \\"jz469d86a0_app\\"
+};
+
+console.log('Heyo');
+"
+`;
+
+exports[`chunking should work: assets/entry1-7ce50ebf.css 1`] = `
+"/* packages/svelte/__fixtures__/config.jazz */
+
+/* packages/svelte/__fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* packages/svelte/__fixtures__/entry.jazz */
+.jz8e4185c2_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should work: assets/entry1-74dc416b.css 1`] = `
+"/* __fixtures__/config.jazz */
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should work: assets/entry1-413e9ab8.css 1`] = `
+"/* __fixtures__/config.jazz */
+
+/* __fixtures__/css.icss.css */
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}
+
+/* __fixtures__/entry.jazz */
+.jz469d86a0_app {
+  color: blue;
+}
+"
+`;
+
+exports[`chunking should work: entry1.js 1`] = `
+"var config = {
+\\"$blue\\": \\"blue\\",
+\\"$red\\": \\"red\\"
+};
+
+var entry = {
+\\"app\\": \\"jz469d86a0_app\\"
+};
+
+console.log('Heyo');
+"
+`;

@@ -1,5 +1,5 @@
 {
-  "name": "svelte",
+  "name": "jazz-svelte",
   "version": "1.0.0",
   "main": "index.js",
   "repository": {
@@ -11,7 +11,8 @@
   "license": "MIT",
   "scripts": {
     "tdd": "jest --watch",
-    "test": "jest"
+    "test": "jest",
+    "publish-local": "yalc publish --push"
   },
   "publishConfig": {
     "access": "public"
@@ -24,12 +25,17 @@
     "@4c/cli": "^2.1.12",
     "@4c/jest-preset": "^1.5.3",
     "@4c/prettier-config": "^1.1.0",
-    "jest": "^26.0.0"
+    "jest": "^26.0.0",
+    "rollup": "^2.33.1",
+    "rollup-plugin-css-chunks": "^1.2.8"
   },
   "dependencies": {
+    "dedent": "^0.7.0",
     "escape-string-regexp": "^4.0.0",
+    "identifierfy": "^2.0.0",
     "is-url": "^1.2.4",
     "jazzjs": "*",
+    "rollup-pluginutils": "^2.8.2",
     "slash": "^3.0.0"
   }
 }

@@ -8,7 +8,7 @@ import postcss, { LazyResult, Result, Root } from 'postcss';
 import ModuleMembers from './ModuleMembers';
 import Scope from './Scope';
 import { getMembers } from './modules';
-import postcssParser from './parsers/postcss';
+import postcssParser from './parsers/jazz-postcss';
 import depGraphPlugin from './plugins/dependency-graph';
 import valuePlugin from './plugins/value-processing';
 import type {
@@ -17,7 +17,11 @@ import type {
   ModuleType,
   ResolvedResource,
 } from './types';
-import { inferEvaluationScope, inferIdenifierScope } from './utils/Scoping';
+import { inferIdentifierScope } from './utils/Scoping';
+
+// const directDependencies = (id: string, graph: any): string[] => {
+//   return (graph as any).outgoingEdges[id];
+// };
 
 type Processor = import('./Processor').default;
 
@@ -50,6 +54,10 @@ export abstract class ProcessingFile<TOut = any> {
 
   readonly requests: Map<string, string> = new Map();
 
+  get type() {
+    return this.module.type;
+  }
+
   constructor(type: ModuleType) {
     this.module = {
       type,
@@ -66,10 +74,6 @@ const collectDependencies = postcss([depGraphPlugin]);
 
 const cssProcessor = postcss([valuePlugin]);
 
-// export class CssFile extends ProcessingFile<Result> {
-//   before();
-// }
-
 export class JazzFile extends ProcessingFile<Result> {
   private before?: LazyResult;
 
@@ -79,12 +83,16 @@ export class JazzFile extends ProcessingFile<Result> {
 
   private content: string | postcss.Root;
 
+  private dependencies?: ResolvedResource[];
+
+  private _icssResult: any;
+
   constructor(
     private id: string,
     content: string | Root | undefined,
     private processor: Processor,
   ) {
-    super('jazzcss');
+    super(id.endsWith('.jazz') ? 'jazzcss' : 'css');
 
     this.content = content || loadFile(id);
   }
@@ -124,6 +132,8 @@ export class JazzFile extends ProcessingFile<Result> {
       dependencies.push(dependency);
     });
 
+    this.dependencies = dependencies;
+
     return dependencies;
   }
 
@@ -153,19 +163,52 @@ export class JazzFile extends ProcessingFile<Result> {
       modules.set(key, value.module);
     });
 
+    const identifierScope = inferIdentifierScope(from);
+
     return {
       ...options,
       from,
       modules,
       moduleGraph: graph,
-      identifierScope: inferIdenifierScope(from),
-      evaluationContext: inferEvaluationScope(from),
+      icssCompatible: false,
+      identifierScope,
       parser: postcssParser,
       resolve: (url: string) => {
         return this.requests.get(url);
       },
       ...args,
     };
+  }
+
+  toICSS() {
+    if (!this._icssResult) {
+      this._icssResult = postcss([
+        (root) => {
+          for (const dep of this.dependencies!) {
+            root.prepend(
+              postcss.atRule({
+                name: 'icss-import',
+                params: `"${path.relative(path.dirname(this.id), dep.file)}"`,
+                // nodes: [postcss.decl({ prop: '____a', value: 'a' })],
+              }),
+            );
+          }
+
+          const entries = Object.entries(this.module.exports.toJSON());
+          if (entries.length) {
+            const exportNode: any = postcss.atRule({
+              name: 'icss-export',
+              nodes: entries.map(([prop, value]) =>
+                postcss.decl({ prop, value }),
+              ),
+            });
+            root.append(exportNode);
+          }
+        },
+      ]).process(this.result!, { from: this.id });
+    }
+
+    return this._icssResult;
   }
 }
 

@@ -3,7 +3,6 @@
 // @ts-ignore
 // eslint-disable-next-line import/no-extraneous-dependencies
 import Tracer from 'pegjs-backtrace';
-import postcss from 'postcss';
 
 import * as Ast from '../Ast';
 import { Location, getPosition } from './location';
@@ -12,6 +11,8 @@ import { IParseOptions, parse } from './parser';
 type ParseOptions = {
   offset?: Location;
 };
+
+const cache = new WeakMap<Ast.Root, Parser>();
 
 class Parser {
   private trace: boolean;
@@ -23,13 +24,11 @@ class Parser {
     this.trace = !!trace;
   }
 
-  static get(root: postcss.Root, opts?: any): Parser {
-    return (
-      // @ts-ignore
-      root.__parser ||
-      // @ts-ignore
-      (root.__parser = new Parser({ source: root.source?.input, ...opts }))
-    );
+  static get(root: Ast.Root, opts?: any): Parser {
+    if (!cache.has(root)) {
+      cache.set(root, new Parser({ source: root.source?.input, ...opts }));
+    }
+    return cache.get(root)!;
   }
 
   value(value: string, options?: ParseOptions): Ast.Expression {

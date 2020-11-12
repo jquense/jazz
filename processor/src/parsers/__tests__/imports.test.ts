@@ -1,8 +1,8 @@
 import Parser from '..';
-import { CallExpression, Ident, SINGLE, StringLiteral } from '../../Ast';
+// import { CallExpression, Ident, StringLiteral } from '../../Ast';
 
-const url = (str: string, quote?: string) =>
-  new CallExpression(new Ident('url'), new StringLiteral(str, quote as any));
+// const url = (str: string, quote?: string) =>
+//   new CallExpression(new Ident('url'), new StringLiteral(str, quote as any));
 
 describe('parser: imports', () => {
   let parse: (input: string) => any;
@@ -14,11 +14,11 @@ describe('parser: imports', () => {
   });
 
   test.each([
-    [`"./foo/bar"`, new StringLiteral('./foo/bar')],
-    [`'foo/bar'`, new StringLiteral('foo/bar')],
-    [`"./foo/bar"`, new StringLiteral('./foo/bar')],
-    [`url('./foo/bar')`, url('./foo/bar', SINGLE)],
-    [`url(./foo/bar)`, url('./foo/bar')],
+    [`"./foo/bar"`, './foo/bar'],
+    [`'foo/bar'`, 'foo/bar'],
+    [`"./foo/bar"`, './foo/bar'],
+    // [`url('./foo/bar')`, url('./foo/bar', SINGLE)],
+    // [`url(./foo/bar)`, url('./foo/bar')],
   ])('%s parses to AST', (input, expected) => {
     expect(parse(input)).toEqual(expected);
   });

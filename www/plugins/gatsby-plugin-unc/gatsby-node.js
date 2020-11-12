@@ -11,7 +11,7 @@ exports.onCreateWebpackConfig = ({
     module: {
       rules: [
         {
-          test: /\.mcss$/,
+          test: /\.jazz$/,
           use: [
             {
               loader: 'style-loader',

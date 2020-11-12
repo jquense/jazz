@@ -1,14 +1,12 @@
-// @ts-ignore
-// import mcssGraph from '@modular-css/processor/plugins/before/graph-nodes';
-import type postcss from 'postcss';
-
-import {
+import type {
   ComposeAtRule,
   ExportAtRule,
   ImportAtRule,
+  Root,
   StatementNode,
   UseAtRule,
 } from '../Ast';
+import { isBuiltin } from '../modules';
 import type { BeforeModularCSSOpts, PostcssPlugin } from '../types';
 
 const plugin = 'jazz-dependencies';
@@ -28,15 +26,30 @@ const isComposeRule = (n: StatementNode): n is ComposeAtRule =>
 const isPromise = <T>(value: any | Promise<T>): value is Promise<T> =>
   typeof value === 'object' && value && 'then' in value;
 
-const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
-  const { resolve, from } = result.opts as BeforeModularCSSOpts;
+const notAllowed = [
+  'use',
+  'export',
+  'compose',
+  'return',
+  'else',
+  'function',
+  'mixin',
+  'include',
+  'if',
+  'else if',
+  'else',
+];
+
+type Rules = ComposeAtRule | ImportAtRule | UseAtRule | ExportAtRule;
+
+const dependencyGraphPlugin: PostcssPlugin = (css: Root, result) => {
+  const { resolve, from, modules } = result.opts as BeforeModularCSSOpts;
+
+  const { type } = modules.get(from)!;
 
   const results = [] as Promise<void>[];
 
-  const pushMessage = (
-    source: string | null | undefined,
-    rule: postcss.AtRule,
-  ) => {
+  const pushMessage = (source: string | null | undefined, rule: Rules) => {
     if (!source) {
       return;
     }
@@ -75,12 +88,16 @@ const dependencyGraphPlugin: PostcssPlugin = (css, result) => {
     }
   };
 
-  css.walkAtRules((rule: postcss.AtRule) => {
+  css.walkAtRules((rule) => {
+    if (type === 'css' && notAllowed.includes(rule.name)) {
+      rule.error(`At rule ${rule.name} is not allowed in css files`);
+    }
+
     if (
       isImportRule(rule) ||
       isExportRule(rule) ||
-      isUseRule(rule) ||
-      isComposeRule(rule)
+      isComposeRule(rule) ||
+      (isUseRule(rule) && !isBuiltin(rule.request))
     ) {
       pushMessage(rule.request, rule);
     }

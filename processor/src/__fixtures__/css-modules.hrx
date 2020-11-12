@@ -1,5 +1,5 @@
 <===> input.jazz
-@use './colors.jazz' import %red;
+@use './colors.module.css' import %red;
 
 $blue: blue;
 
@@ -8,23 +8,18 @@ $blue: blue;
 }
 
 @export $blue;
-
-<===> colors.jazz
+<===> colors.module.css
 
 .red {
   color: rgb(255, 0, 0);
 }
 
 <===> output.jazz
-/* colors.jazz */
+/* colors.module.css */
 .colors_red {
   color: rgb(255, 0, 0);
 }
 /* input.jazz */
 .input_a > .colors_red {
   color: blue;
-}
-<===> options.json
-{
-  "icssCompatible": true
 }

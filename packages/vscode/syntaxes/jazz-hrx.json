@@ -1,0 +1,33 @@
+{
+  "fileTypes": ["hrx"],
+  "injectionSelector": "L:source.hrx",
+  "patterns": [
+    {
+      "contentName": "meta.embedded.jazz",
+      "begin": "(\\<=+\\>)\\s*(.+\\.jazz)($|\\s+)",
+      "beginCaptures": {
+        "1": {
+          "patterns": [
+            {
+              "include": "source.hrx#boundary"
+            }
+          ]
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "source.hrx#file"
+            }
+          ]
+        }
+      },
+      "patterns": [
+        {
+          "include": "source.css.jazz"
+        }
+      ],
+      "end": "^(?=\\1)"
+    }
+  ],
+  "scopeName": "source.jazz-hrx"
+}

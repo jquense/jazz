@@ -13,6 +13,9 @@
       "include": "#at_rule_use"
     },
     {
+      "include": "#at_rule_export"
+    },
+    {
       "include": "#at_rule_include"
     },
     {
@@ -169,30 +172,7 @@
         }
       ]
     },
-    "at_rule_extend": {
-      "begin": "\\s*((@)extend\\b)\\s*",
-      "captures": {
-        "1": {
-          "name": "keyword.control.at-rule.extend.scss"
-        },
-        "2": {
-          "name": "punctuation.definition.keyword.scss"
-        }
-      },
-      "end": "\\s*(?=;)",
-      "name": "meta.at-rule.extend.scss",
-      "patterns": [
-        {
-          "include": "#variable"
-        },
-        {
-          "include": "#selectors"
-        },
-        {
-          "include": "#property_values"
-        }
-      ]
-    },
+
     "at_rule_fontface": {
       "patterns": [
         {
@@ -372,6 +352,45 @@
           }
         }
       ]
+    },
+    "at_rule_compose": {
+      "match": "((@)compose)\\b(.+)(?=$)",
+      "captures": {
+        "0": {
+          "name": "meta.at-rule.compose.jazz"
+        },
+        "1": {
+          "name": "keyword.control.at-rule.compose.jazz"
+        },
+        "2": {
+          "name": "punctuation.definition.keyword.scss"
+        },
+        "3": {
+          "patterns": [
+            {
+              "match": "(from\\b)",
+              "name": "keyword.control.css.sass"
+            },
+            {
+              "match": "(\\bglobal)",
+              "name": "support.constant.property-value.css"
+            },
+            {
+              "include": "#string_single"
+            },
+            {
+              "include": "#string_double"
+            },
+            {
+              "include": "#interpolation"
+            },
+            {
+              "match": "([-a-zA-Z_0-9]|[^\\x00-\\x7F])+",
+              "name": "entity.name.function.jazz"
+            }
+          ]
+        }
+      }
     },
     "at_rule_keyframes": {
       "begin": "(?<=^|\\s)(@)(?:-(?:webkit|moz)-)?keyframes\\b",
@@ -842,6 +861,56 @@
         }
       ]
     },
+    "at_rule_export": {
+      "begin": "\\s*((@)export\\b)\\s*",
+      "captures": {
+        "1": {
+          "name": "keyword.control.at-rule.export.jazz"
+        },
+        "2": {
+          "name": "punctuation.definition.keyword.jazz"
+        }
+      },
+      "end": "\\s*(?=;)",
+      "name": "meta.at-rule.export.jazz",
+      "patterns": [
+        {
+          "match": "\\b[\\w-]+\\b",
+          "name": "variable.sass"
+        },
+        {
+          "include": "#variable"
+        },
+        {
+          "include": "#selector_placeholder"
+        },
+        {
+          "include": "#comment_line"
+        },
+        {
+          "include": "#comment_block"
+        },
+        {
+          "begin": "\\(",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.parameters.begin.bracket.round.jazz"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.parameters.end.bracket.round.jazz"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#function_attributes"
+            }
+          ]
+        }
+      ]
+    },
     "at_rule_warn": {
       "begin": "\\s*((@)(warn|debug|error)\\b)\\s*",
       "captures": {
@@ -1227,6 +1296,9 @@
             },
             {
               "include": "#at_rule_include"
+            },
+            {
+              "include": "#at_rule_compose"
             }
           ]
         },
@@ -1326,6 +1398,9 @@
           "include": "#operators"
         },
         {
+          "include": "#range_keyword"
+        },
+        {
           "begin": "\\(",
           "beginCaptures": {
             "0": {
@@ -1349,19 +1424,23 @@
         }
       ]
     },
+    "range_keyword": {
+      "match": "\\b(through|to)\\b",
+      "name": "keyword.control.operator.range.jazz"
+    },
     "rules": {
       "patterns": [
         {
           "include": "#general"
         },
         {
-          "include": "#at_rule_extend"
-        },
-        {
           "include": "#at_rule_content"
         },
         {
           "include": "#at_rule_include"
+        },
+        {
+          "include": "#at_rule_compose"
         },
         {
           "include": "#at_rule_media"

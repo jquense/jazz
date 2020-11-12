@@ -1,7 +1,5 @@
 <script>
   export let name;
-
-  let styles;
 </script>
 
 <style lang="jazz">
@@ -12,4 +10,4 @@
   }
 </style>
 
-<h1 class="app">Hello {name}!</h1>
+<h1 class="%app">Hello {name}!</h1>

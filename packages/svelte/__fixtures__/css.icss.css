@@ -1,0 +1,7 @@
+.plain-css {
+  border-radius: 4px;
+}
+
+@icss-export {
+  red: red;
+}

@@ -1,4 +1,5 @@
-// import type { StringValue, Value } from 'jazzjs/lib/Values';
+import type { ListValue, Value } from 'jazzjs/lib/Values';
+
 // import { cosmiconfigSync } from 'cosmiconfig';
 const get = require('lodash/get');
 
@@ -6,15 +7,21 @@ const get = require('lodash/get');
 //   searchPlaces: ['theme.config.js'],
 //   ignoreEmptySearchPlaces: true,
 // });
-let config = {
+export const config = {
   colors: {
     blue: 'blue',
     red: 'blue',
   },
 };
-module.exports = {
-  config,
-  theme(path, defaultValue = undefined) {
-    return get(config, path.toJs(), defaultValue);
-  },
-};
+
+export function theme(path: Value, defaultValue = undefined) {
+  const list = path.assertType('list');
+
+  return get(config, path.toJs(), defaultValue);
+}
+
+export const $pi = Math.PI;
+
+export function join(separator: Value, ...strings: Value[]) {
+  return strings.join(separator.toJs());
+}

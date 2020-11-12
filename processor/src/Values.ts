@@ -353,10 +353,10 @@ abstract class BaseList<T extends Value = Value>
     return this.map((value) => value.toJSON());
   }
 
-  assertType<T extends VALUE_TYPE>(
-    type: T,
+  assertType<TType extends VALUE_TYPE>(
+    type: TType,
     title?: string,
-  ): Extract<Value, { type: T }> {
+  ): Extract<Value, { type: TType }> {
     assertType(this as Value, type, title);
     return this as any;
   }
@@ -390,13 +390,6 @@ export class ArgumentListValue<T extends Value = Value> extends BaseList<T> {
   ) {
     super(elements, ',', false);
   }
-
-  // equalTo(list: Value): boolean {
-  //   return (
-  //     super.equalTo(list) &&
-  //     this.keywords.equalTo((list as ArgumentListValue).keywords)
-  //   );
-  // }
 }
 
 export class MapValue<K extends Value = Value, V extends Value = Value>

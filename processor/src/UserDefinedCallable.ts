@@ -1,6 +1,4 @@
-import postcss from 'postcss';
-
-import { FunctionAtRule, MixinAtRule, ParameterList } from './Ast';
+import { FunctionAtRule, MixinAtRule, ParameterList, Root } from './Ast';
 import type { Callable, ResolvedParameters } from './Callable';
 import type Evaluator from './Evaluate';
 import type Scope from './Scope';
@@ -9,18 +7,15 @@ import detach from './utils/detach';
 
 export type MixinCallable = ((
   args: ResolvedParameters,
-  content: postcss.Root | null,
-) => postcss.Root) & { params: ParameterList };
+  content: Root | null,
+) => Root) & { params: ParameterList };
 
 export function mixin(
   node: MixinAtRule,
   localScope: Scope,
   visitor: Evaluator,
 ): MixinCallable {
-  const userMixin = (
-    args: ResolvedParameters,
-    content: postcss.Root | null,
-  ) => {
+  const userMixin = (args: ResolvedParameters, content: Root | null) => {
     return visitor.withScope(localScope, () => {
       return visitor.callWithScopedParameters(node.parameterList, args, () => {
         if (content) visitor.currentScope.contentBlock = content;

@@ -1,6 +1,6 @@
-import { css, evaluate, process, Selectors } from '../../../test/helpers';
-import ModuleMembers from '../../ModuleMembers';
+import { Selectors, css, evaluate, process } from '../../../test/helpers';
 import * as Callable from '../../Callable';
+import ModuleMembers from '../../ModuleMembers';
 import Scope from '../../Scope';
 import { StringValue } from '../../Values';
 
@@ -281,6 +281,26 @@ describe('function evaluation', () => {
           }
         `),
       ).rejects.toThrow('Function is-red did not return a value');
+    });
+
+    it('should handle spreads', async () => {
+      expect(
+        await evaluate(css`
+          @function toList($delim: ',', $values...) {
+            @return $values;
+          }
+
+          .a {
+            a: toList($delim: ',', 1, 2, 3);
+            b: toList((1, 2, 3)..., $delim: ',');
+          }
+        `),
+      ).toMatchCss(css`
+        .a {
+          a: 1, 2, 3;
+          b: 1, 2, 3;
+        }
+      `);
     });
   });
 });

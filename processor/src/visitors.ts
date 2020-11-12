@@ -1,12 +1,23 @@
-import { AtRule, Declaration, Root, Rule } from 'postcss';
-
 import type * as Ast from './Ast';
+import ModuleMembers from './ModuleMembers';
 
 export interface StatementVisitor<T> {
-  visitRoot(node: Root): T;
-  visitAtRule(node: AtRule): T;
-  visitRule(node: Rule): T;
-  visitDeclaration(node: Declaration): T;
+  visitRoot(node: Ast.Root): T;
+  visitRule(node: Ast.Rule): T;
+  visitDeclaration(node: Ast.Declaration): T;
+
+  visitIfRule(node: Ast.IfAtRule): T;
+  visitUseRule(node: Ast.UseAtRule): T;
+  visitEachRule(node: Ast.EachAtRule): T;
+  visitFunctionRule(node: Ast.FunctionAtRule): T;
+  visitMixinRule(node: Ast.MixinAtRule): T;
+  visitIncludeRule(node: Ast.IncludeAtRule): T;
+  visitComposeRule(node: Ast.ComposeAtRule): T;
+  visitExportRule(node: Ast.ExportAtRule, exports: ModuleMembers): T;
+  visitReturnRule(node: Ast.ReturnAtRule): T;
+  visitContentRule(node: Ast.ContentAtRule): T;
+
+  visitMetaRule(node: Ast.MetaAtRule): T;
 }
 
 export interface ExpressionVisitor<T> {

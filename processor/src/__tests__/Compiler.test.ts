@@ -13,7 +13,7 @@ function trimLineEnd(str: string) {
 describe('Compiler', () => {
   function get(options: Partial<Options> = {}) {
     const fs = Volume.fromJSON({
-      '/colors.mcss': `
+      '/colors.jazz': `
         $red: red;
         $blue: blue;
 
@@ -38,9 +38,10 @@ describe('Compiler', () => {
     const processor = get();
 
     const details = await processor.add(
-      '/entry.mcss',
+      '/entry.jazz',
       `
-        @use './colors.mcss' import $red;
+        @use 'string' as string;
+        @use './colors.jazz' import $red;
 
         $name: child;
 
@@ -71,7 +72,7 @@ describe('Compiler', () => {
     const processor = get();
 
     const details = await processor.add(
-      '/entry.mcss',
+      '/entry.jazz',
       `
         @use './config.js' import $PI;
 
@@ -93,7 +94,7 @@ describe('Compiler', () => {
     const processor = get();
     try {
       await processor.add(
-        '/entry.mcss',
+        '/entry.jazz',
         `
         .foo /* hi */ :global(
           .foo,
@@ -119,7 +120,7 @@ describe('Compiler', () => {
     const processor = get();
     try {
       await processor.add(
-        '/entry.mcss',
+        '/entry.jazz',
         `
         @if 1
           +   {
@@ -144,9 +145,9 @@ describe('Compiler', () => {
     const processor = get();
 
     const details = await processor.add(
-      '/entry.mcss',
+      '/entry.jazz',
       css`
-        @use './colors.mcss' as colors;
+        @use './colors.jazz' as colors;
 
         $baz: blue;
 
@@ -172,11 +173,45 @@ describe('Compiler', () => {
     `);
   });
 
+  it('should output ICSS ', async () => {
+    const processor = get();
+
+    const details = await processor.add(
+      '/entry.jazz',
+      css`
+        @use './colors.jazz' as colors;
+
+        $baz: blue;
+
+        .foo {
+          color: colors.$red;
+        }
+
+        @export $baz;
+      `,
+    );
+
+    expect(details.toICSS().css).toMatchInlineSnapshot(`
+      "@icss-import \\"colors.jazz\\";
+      .m_foo {
+                color: red;
+              }
+      @icss-export {$baz: blue;foo: m_foo;
+      }
+            "
+    `);
+  });
+
   describe('Importing files', () => {
     runFixture(`${__dirname}/../__fixtures__/imports.hrx`);
   });
 
   describe('ICSS', () => {
     runFixture(`${__dirname}/../__fixtures__/icss.hrx`);
+  });
+
+  describe('Css imports', () => {
+    runFixture(`${__dirname}/../__fixtures__/css.hrx`);
+    runFixture(`${__dirname}/../__fixtures__/css-modules.hrx`);
   });
 });

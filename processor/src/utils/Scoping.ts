@@ -10,18 +10,14 @@ export const extensions = [
   topLevelExtension,
 ];
 
-export function inferIdenifierScope(filename: string): IdentifierScope {
-  return filename.endsWith(`.global${topLevelExtension}`) ? 'global' : 'local';
-}
+export function inferIdentifierScope(filename: string): IdentifierScope {
+  if (filename.endsWith('.module.css')) return 'local';
 
-export function inferEvaluationScope(filename: string): EvaluationScope {
-  if (filename.endsWith('.module.css')) return 'modular-css';
-  if (filename.endsWith('.css')) return 'css';
-
-  return 'preprocess';
+  return filename.endsWith(`.global${topLevelExtension}`) ||
+    filename.endsWith('.css')
+    ? 'global'
+    : 'local';
 }
 
 export const isStyleFile = (file: string) =>
-  file.endsWith(topLevelExtension) ||
-  file.endsWith('.css') ||
-  file.endsWith('.mcss');
+  file.endsWith(topLevelExtension) || file.endsWith('.css');

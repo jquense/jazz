@@ -1,5 +1,3 @@
-import { Root } from 'postcss';
-
 import * as Ast from './Ast';
 import type { Callable } from './Callable';
 import ModuleMembers, { Member } from './ModuleMembers';
@@ -24,7 +22,7 @@ export default class Scope {
 
   private _rule: Ast.Rule | null = null;
 
-  private _content: Root | null = null;
+  private _content: Ast.Root | null = null;
 
   readonly closure: boolean;
 
@@ -40,7 +38,7 @@ export default class Scope {
     return this._content || this.parent?._content || null;
   }
 
-  set contentBlock(content: Root | null) {
+  set contentBlock(content: Ast.Root | null) {
     this._content = content;
   }
 
@@ -64,9 +62,9 @@ export default class Scope {
     return parent;
   }
 
-  addAll(members: ModuleMembers, namespace?: string) {
+  addAll(members: ModuleMembers, namespace?: string, source?: string) {
     for (const [key, value] of members) {
-      this.set(namespace ? `${namespace}.${key}` : key, { ...value });
+      this.set(namespace ? `${namespace}.${key}` : key, { ...value, source });
     }
 
     return this;
@@ -145,14 +143,6 @@ export default class Scope {
       _force,
     );
   }
-
-  // setClassReference(
-  //   name: Ast.ClassReference,
-  //   node: StringValue,
-  //   _force?: boolean,
-  // ) {
-  //   return this.set(name, { type: 'class', node }, _force);
-  // }
 
   setFunction(name: string, callable: Callable) {
     return this.set(new Ast.Ident(name), {

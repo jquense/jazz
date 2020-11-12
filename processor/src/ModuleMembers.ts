@@ -49,8 +49,8 @@ export type Member =
 type Identifier = Ast.Ident | Ast.Variable | Ast.ClassReference;
 
 export default class ModuleMembers extends Map<string, Member> {
-  addAll(members: ModuleMembers) {
-    for (const [key, item] of members) this.set(key, { ...item });
+  addAll(members: ModuleMembers, source?: string) {
+    for (const [key, item] of members) this.set(key, { ...item, source });
   }
 
   *entries() {

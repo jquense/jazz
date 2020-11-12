@@ -9,41 +9,40 @@ import type webpack from 'webpack';
 import SyntaxError from './SyntaxError';
 import getLocalName from './getLocalName';
 
-const PROCESSOR = Symbol('@modular-css processor');
-const CACHE = Symbol('loadModule cache module');
+const PROCESSOR = Symbol('jazz processor');
 
-function getLoadFilePrefix(loaderContext: webpack.loader.LoaderContext) {
-  // loads a file with all loaders configured after this one
-  const loadersRequest = loaderContext.loaders
-    .slice(loaderContext.loaderIndex + 1)
-    .map((x) => x.request)
-    .join('!');
+// function getLoadFilePrefix(loaderContext: webpack.loader.LoaderContext) {
+//   // loads a file with all loaders configured after this one
+//   const loadersRequest = loaderContext.loaders
+//     .slice(loaderContext.loaderIndex + 1)
+//     .map((x) => x.request)
+//     .join('!');
 
-  return `-!${require.resolve('./stringifyLoader')}!${loadersRequest}!`;
-}
+//   return `-!${require.resolve('./stringifyLoader')}!${loadersRequest}!`;
+// }
 
-function loadStyle(request: string, ctx: webpack.loader.LoaderContext) {
-  const prefix = getLoadFilePrefix(ctx);
+// function loadStyle(request: string, ctx: webpack.loader.LoaderContext) {
+//   const prefix = getLoadFilePrefix(ctx);
 
-  return new Promise((resolve, reject) => {
-    ctx.loadModule(`${prefix}${request}`, (err, moduleSource) => {
-      if (err) return reject(err);
+//   return new Promise((resolve, reject) => {
+//     ctx.loadModule(`${prefix}${request}`, (err, moduleSource) => {
+//       if (err) return reject(err);
 
-      let content = '';
-      if (moduleSource) {
-        content = moduleSource.toString();
+//       let content = '';
+//       if (moduleSource) {
+//         content = moduleSource.toString();
 
-        content = JSON.parse(moduleSource.toString());
-      }
+//         content = JSON.parse(moduleSource.toString());
+//       }
 
-      resolve(content);
-    });
-  });
-}
+//       resolve(content);
+//     });
+//   });
+// }
 
-function loadScript(request: string, ctx: webpack.loader.LoaderContext) {
-  return Promise.resolve(ctx.fs.readFileSync(request).toString());
-}
+// function loadScript(request: string, ctx: webpack.loader.LoaderContext) {
+//   return Promise.resolve(ctx.fs.readFileSync(request).toString());
+// }
 
 function getResolve(ctx: webpack.loader.LoaderContext): AsyncResolver {
   const resolve = promisify(

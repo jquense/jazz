@@ -3,7 +3,7 @@
   "displayName": "Jazz Syntax Theme",
   "description": "",
   "publisher": "monasticpanic",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.47.0"
   },
@@ -37,6 +37,16 @@
         ],
         "scopeName": "source.jazz-svelte",
         "path": "./syntaxes/jazz-svelte.json",
+        "embeddedLanguages": {
+          "source.css.jazz": "jazz"
+        }
+      },
+      {
+        "injectTo": [
+          "source.hrx"
+        ],
+        "scopeName": "source.jazz-hrx",
+        "path": "./syntaxes/jazz-hrx.json",
         "embeddedLanguages": {
           "source.css.jazz": "jazz"
         }

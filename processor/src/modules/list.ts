@@ -1,4 +1,4 @@
-import { Value, StringValue, ListValue } from '../Values';
+import { ListValue, NumericValue, StringValue, Value } from '../Values';
 
 const AUTO = new StringValue<'auto'>('auto');
 
@@ -6,6 +6,14 @@ export type ListSeparatorValue =
   | StringValue<' '>
   | StringValue<','>
   | StringValue<'/'>;
+
+export function entries(list: Value) {
+  return new ListValue(
+    list
+      .assertType('list')
+      .map((value, idx) => new ListValue([new NumericValue(idx), value])),
+  );
+}
 
 export function length(list: Value, item: Value) {
   return list.assertType('list').includes(item);

@@ -1,7 +1,7 @@
-import { DepGraph } from 'dependency-graph';
-import type { LazyResult, ProcessOptions, Result, Root } from 'postcss';
+import type { DepGraph } from 'dependency-graph';
+import type { ProcessOptions, Result, Rule } from 'postcss';
 
-import { ProcessingFile } from './File';
+import type { Root } from './Ast';
 import type ModuleMembers from './ModuleMembers';
 // eslint-disable-next-line import/no-duplicates
 import type Scope from './Scope';
@@ -19,25 +19,17 @@ export interface Value {
 
 export type ModuleType = 'css' | 'jazzcss' | 'jazzscript';
 
+export type ICSSNodes = {
+  import: Set<Rule>;
+  export: Set<Rule>;
+};
+
 export interface Module {
   type: ModuleType;
   scope: Scope;
   exports: ModuleMembers;
+  icss?: ICSSNodes;
 }
-
-// export interface ProcessingFile {
-//   text: string;
-//   // values: Record<string, Value>;
-
-//   module: Module;
-
-//   valid: boolean;
-//   before: LazyResult;
-//   processed?: LazyResult;
-//   requests: Map<string, string>;
-//   result?: Result;
-//   walked: Promise<void>;
-// }
 
 export interface File {
   type: ModuleType;
@@ -45,9 +37,11 @@ export interface File {
   module: Module;
   valid: boolean;
   result: Result;
-  values: Record<string, string>;
-  selectors: Record<string, string[]>;
+  toICSS(): Result;
+  // values: Record<string, string>;
+  // selectors: Record<string, string[]>;
   readonly exports: Record<string, any>;
+  readonly imports: string[];
 }
 
 export type PostcssProcessOptions = ProcessOptions & ModularCSSOpts;

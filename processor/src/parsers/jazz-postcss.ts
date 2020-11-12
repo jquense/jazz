@@ -25,7 +25,7 @@ function identIsLikelyCssVar(node: Ast.Expression) {
   return false;
 }
 
-function prevNonComment(node?: postcss.Node): postcss.Node | undefined {
+function prevNonComment(node?: any): postcss.Node | undefined {
   while (node?.type === 'comment') {
     node = node.prev();
   }
@@ -33,12 +33,11 @@ function prevNonComment(node?: postcss.Node): postcss.Node | undefined {
   return node;
 }
 
-const rawOrProp = (node: postcss.Node, prop: string): string => {
-  // @ts-ignore
+const rawOrProp = (node: any, prop: string): string => {
   return node.raws[prop]?.raw ?? node[prop];
 };
 
-export class PostcssParser extends CssParser {
+export class JazzPostcssParser extends CssParser {
   private parser: Parser;
 
   constructor(input: Input, opts: any) {
@@ -56,9 +55,12 @@ export class PostcssParser extends CssParser {
 
     if (this.current.type === 'rule') {
       const input = rawOrProp(this.current, 'selector');
-      (this.current as Ast.Rule).selectorAst = this.parser.anyValue(input, {
-        offset: { line, column },
-      });
+      ((this.current as any) as Ast.Rule).selectorAst = this.parser.anyValue(
+        input,
+        {
+          offset: { line, column },
+        },
+      );
     }
   }
 
@@ -100,14 +102,15 @@ export class PostcssParser extends CssParser {
       super.atrule(tokens);
     }
 
-    let current = this.current.type === 'atrule' && this.current;
+    let current: any = this.current.type === 'atrule' && this.current;
     if (!current) {
       if (this.current.last?.type === 'atrule') current = this.current.last;
       else return;
     }
     if (tokenName === 'return' && current.name !== 'return') {
       current = current.nodes!.find(
-        (n): n is postcss.AtRule => n.type === 'atrule' && n.name === 'return',
+        (n: any): n is Ast.AtRule =>
+          n.type === 'atrule' && n.name === 'return',
       )!;
     }
 
@@ -180,6 +183,14 @@ export class PostcssParser extends CssParser {
         (current as Ast.ComposeAtRule).classList = composition.classList;
         break;
       }
+      case 'debug':
+      case 'warn':
+      case 'error':
+        (current as Ast.MetaAtRule).expression = this.parser.expression(
+          params,
+          loc,
+        );
+        break;
       default:
         (current as Ast.CssAtRule).paramValue = this.parser.anyValue(
           params,
@@ -223,8 +234,8 @@ export class PostcssParser extends CssParser {
 }
 
 export default function parse(input: string, opts: any) {
-  const parser = new PostcssParser(new Input(input) as any, opts);
+  const parser = new JazzPostcssParser(new Input(input) as any, opts);
   parser.parse();
 
-  return parser.root;
+  return parser.root as Ast.Root;
 }

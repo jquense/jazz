@@ -1,0 +1,9 @@
+@use './config' import $blue;
+
+html {
+  color: $blue;
+}
+
+.button {
+  @compose text-align-center from './text.utils'
+}

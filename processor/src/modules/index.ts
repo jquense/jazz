@@ -3,9 +3,9 @@
 import * as Ast from '../Ast';
 import * as Callable from '../Callable';
 import { fromJs } from '../Interop';
-import * as globals from '../builtins';
 import ModuleMembers from '../ModuleMembers';
 import Scope from '../Scope';
+import * as globals from '../builtins';
 
 export function createRootScope() {
   const scope = new Scope({ closure: true });
@@ -55,5 +55,5 @@ export const getMembers = (mod: Record<string, unknown>) => {
 export const loadBuiltIn = (file: string) => {
   const module = require(`./${file}`);
 
-  return getMembers(module);
+  return { exports: getMembers(module), type: 'jazzscript' as const };
 };

@@ -9,9 +9,9 @@ import Evaluator from '../Evaluate';
 import Parser from '../parsers';
 import type { PostcssPlugin } from '../types';
 
-const defaultNamer = (filename: string, selector: string) => {
+export const defaultNamer = (filename: string, selector: string) => {
   // return `i_${selector}`;
-  return `mc${slug(
+  return `jz${slug(
     path.relative(process.cwd(), filename!).replace(/\\/g, '/'),
   )}_${selector}`;
 };
@@ -30,8 +30,9 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
 
   const parser = Parser.get(css, opts);
 
-  const members = Evaluator.evaluate(css, {
+  const { exports, icss } = Evaluator.evaluate(css, {
     outputIcss: icssCompatible,
+    isCss: module!.type === 'css',
     namer: (str: string) => namer(from!, str),
     loadModule: (request: string) => {
       const resolved = resolve(request);
@@ -47,7 +48,8 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
     parser,
   });
 
-  module.exports.addAll(members);
+  module.icss = icss;
+  module.exports.addAll(exports);
 };
 
 // importsPlugin.postcssPlugin = 'modular-css-values-local';

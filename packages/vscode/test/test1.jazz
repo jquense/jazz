@@ -1,0 +1,105 @@
+
+
+// import by namespace
+@use './config' as config;
+// or by name
+@use './config' import $blue, %text-align-center, my-mixin;
+
+@include config.my-mixin($color: $blue);
+
+$width: 2rem;
+$height: 4rem;
+
+@export $width, $height;
+
+// Strings
+
+$double: "Double quotes";
+$single: 'Single quotes';
+
+$combined: "#{$double} and #{$single}"; // "Double quotes and single quotes"
+
+$not-last: ~':not(:last-child)'; // render an unqoted string
+
+li#{$not-last} {
+  border: ~'1px solid blue';
+}
+
+// Class Scoping
+.item {
+  color: red;
+}
+
+// compiles too:
+.jz469d86a0_item {
+  color: violet;
+  border-bottom: 1px solid black;
+}
+
+// Reference class from other files with placeholders
+@use './list-item' import %item;
+
+.list > %item:last-of-type {
+  border-bottom: none;
+}
+
+// class composition
+.button {
+  @compose text-align-center from './text.utils'
+}
+
+// -> exports both classes
+
+
+// Loops
+
+$list: (1,2,3,4);
+
+@each $i in $list {
+  @debug "count #{$i}";
+}
+
+// Destructuring
+$map: (
+  1: red,
+  2: blue,
+);
+
+@each $key, $color in $map {
+  @debug "#{key}: #{$color}";
+}
+
+// Ranges
+@each $i in 0 to 5 {
+  @debug "count #{$i}";
+}
+
+// ranges are expressions!
+$range: 1 through 10;
+
+@each $idx, $num in list.entries($range) {
+   @debug "#{idx} #{$num}";
+}
+
+
+// First class calc() suppor t
+
+$padding: 4px;
+$line-height: 20px;
+
+$half-padding: calc($padding / 2);
+
+.item {
+  height: calc($padding + $line-height); // -> 24px
+
+  height: calc(3rem + $line-height * 2 + $half-padding); // -> calc(3rem + 44px)
+}
+
+
+@use './my-functions' import join, $pi;
+
+$numbers: ('1', '2', '3');
+
+@debug "MATH! #{$pi}";
+
+@debug join($separator: ", ", $numbers...);

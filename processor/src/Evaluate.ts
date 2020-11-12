@@ -1,6 +1,6 @@
 import escape from 'escape-string-regexp';
 import { uniqBy } from 'lodash';
-import postcss, { AtRule, ChildNode, Root } from 'postcss';
+import postcss from 'postcss';
 
 import * as Ast from './Ast';
 import EvaluateExpression from './Expression';
@@ -10,15 +10,15 @@ import * as UserDefinedCallable from './UserDefinedCallable';
 import { Value } from './Values';
 import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
-import type { Module, ModuleType } from './types';
+import type { ICSSNodes, Module, ModuleType } from './types';
 import { IdentifierScope } from './utils/Scoping';
 import breakOnReturn from './utils/breakOnReturn';
 import detach from './utils/detach';
 import { SelectorVisitor, StatementVisitor } from './visitors';
 
-type AnyNode = postcss.Node | Ast.Node;
+type AnyNode = Ast.ChildNode | Ast.Node;
 
-const rawOrProp = (node: postcss.Node, prop: string): string => {
+const rawOrProp = (node: Ast.StatementNode, prop: string): string => {
   // @ts-ignore
   return node.raws[prop]?.raw ?? node[prop];
 };
@@ -50,7 +50,11 @@ const isMixinRule = (n: Ast.StatementNode): n is Ast.MixinAtRule =>
 const isIncludeRule = (n: Ast.StatementNode): n is Ast.IncludeAtRule =>
   n.type === 'atrule' && n.name === 'include';
 
-const contentNodes = (node: ChildNode) =>
+const isMetaRule = (n: Ast.StatementNode): n is Ast.MetaAtRule =>
+  n.type === 'atrule' &&
+  (n.name === 'debug' || n.name === 'warn' || n.name === 'error');
+
+const contentNodes = (node: Ast.ChildNode) =>
   node.type !== 'comment' || node.text.startsWith('!');
 
 // We need a dummy value here so css-loader doesn't remove it
@@ -72,6 +76,7 @@ export type Options = {
   initialScope?: Scope;
   parser?: Parser;
   outputIcss?: boolean;
+  isCss?: boolean;
   loadModule: (
     request: string,
   ) => { module: Module | undefined; resolved: string | false };
@@ -93,7 +98,10 @@ export default class Evaluator
 
   private keyframes = new Map<string, string>();
 
-  private importUrls = new Set<string>();
+  private imports = new Map<
+    string,
+    { exports: ModuleMembers; type: ModuleType }
+  >();
 
   private exportNodes = new Set<Ast.ExportAtRule>();
 
@@ -111,7 +119,11 @@ export default class Evaluator
 
   private outputIcss: boolean | undefined;
 
-  static evaluate(node: Root, options: Options) {
+  private isCss: boolean;
+
+  private icss?: ICSSNodes;
+
+  static evaluate(node: Ast.Root, options: Options) {
     return new Evaluator(options).visitStyleSheet(node);
   }
 
@@ -122,6 +134,7 @@ export default class Evaluator
     namer,
     outputIcss,
     loadModule,
+    isCss,
   }: Options) {
     super({ scope: getScope(initialScope) });
 
@@ -131,9 +144,10 @@ export default class Evaluator
     this.loadModule = loadModule;
     this.loadModuleMembers = (request) => loadModule(request).module?.exports;
     this.parser = parser || new Parser();
+    this.isCss = isCss || false;
   }
 
-  visitChildNode(node: postcss.ChildNode) {
+  visitChildNode(node: Ast.ChildNode) {
     switch (node.type) {
       case 'atrule':
         return this.visitAtRule(node);
@@ -150,7 +164,14 @@ export default class Evaluator
     return undefined;
   }
 
-  visitStyleSheet(node: Root): ModuleMembers {
+  visitStyleSheet(
+    node: Ast.Root,
+  ): { exports: ModuleMembers; icss: ICSSNodes } {
+    this.icss = {
+      import: new Set(),
+      export: new Set(),
+    };
+
     this.visitRoot(node);
 
     const exports = new ModuleMembers();
@@ -169,30 +190,32 @@ export default class Evaluator
     });
 
     if (this.outputIcss) {
-      node.append(
-        postcss.rule({
+      const entries = Object.entries(exports.toJSON());
+      if (entries.length) {
+        const exportNode: any = postcss.rule({
           selector: ':export',
-          nodes: Object.entries(exports.toJSON()).map(([prop, value]) =>
-            postcss.decl({ prop, value }),
-          ),
-        }),
-      );
+          nodes: entries.map(([prop, value]) => postcss.decl({ prop, value })),
+        });
+        this.icss.export.add(exportNode);
+        // node.append(exportNode);
+      }
     }
 
-    return exports;
+    return { exports, icss: this.icss! };
   }
 
-  visitRoot(node: Root): void {
+  visitRoot(node: Ast.Root): void {
     node.each((c) => {
       this.visitChildNode(c);
     });
   }
 
-  visitAtRule(node: AtRule): void | Value {
+  visitAtRule(node: Ast.AtRule): void | Value {
     if (this.toHoist.has(node)) {
       return undefined;
     }
 
+    if (isMetaRule(node)) return this.visitMetaRule(node);
     if (isUseRule(node)) return this.visitUseRule(node);
 
     if (isIfRule(node)) return this.visitIfRule(node);
@@ -201,6 +224,7 @@ export default class Evaluator
     if (isMixinRule(node)) return this.visitMixinRule(node);
     if (isIncludeRule(node)) return this.visitIncludeRule(node);
     if (isComposeRule(node)) return this.visitComposeRule(node);
+
     if (isExportRule(node)) {
       this.exportNodes.add(node.remove());
       return undefined;
@@ -209,7 +233,7 @@ export default class Evaluator
       return this.visitReturnRule(node as Ast.ReturnAtRule);
     }
     if (node.name === 'content') {
-      return this.visitContentRule(node);
+      return this.visitContentRule(node as Ast.ContentAtRule);
     }
 
     const isKeyFrames = node.name === 'keyframes';
@@ -244,29 +268,30 @@ export default class Evaluator
 
     let { request, specifiers } = node;
 
-    let exports: ModuleMembers;
-
-    let moduleType: ModuleType;
+    let module: { exports: ModuleMembers; type: ModuleType };
+    let source;
 
     if (isBuiltin(request)) {
-      exports = loadBuiltIn(request);
-      moduleType = 'jazzscript';
+      module = loadBuiltIn(request);
     } else {
-      const { module, resolved } = this.loadModule(request);
-      if (!module) {
+      const imported = this.loadModule(request);
+      if (!imported.module) {
         throw node.error(`Could not resolve module ${node.request}`, {
           word: node.request,
         });
       }
 
-      request = resolved as string;
-      moduleType = module.type;
-      exports = module.exports;
+      source = imported.resolved as string;
+      request = imported.resolved as string;
+      module = imported.module;
+      // this.imports.set(request, module);
     }
+
+    const { exports } = module;
 
     for (const specifier of specifiers) {
       if (specifier.type === 'namespace') {
-        this.currentScope.addAll(exports, specifier.local.value);
+        this.currentScope.addAll(exports, specifier.local.value, source);
       }
       if (specifier.type === 'named') {
         const other = exports.get(specifier.imported);
@@ -280,24 +305,24 @@ export default class Evaluator
           );
         }
 
-        this.importUrls.add(request);
-        this.currentScope.set(specifier.local, { ...other });
+        this.currentScope.set(specifier.local, { ...other, source });
       }
     }
 
-    if (this.outputIcss && moduleType === 'jazzcss') {
-      node.before(
-        postcss.rule({
-          selector: `:import("${request}")`,
-          nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
-        }),
-      );
+    if (this.outputIcss && module.type !== 'jazzscript') {
+      const importNode: any = postcss.rule({
+        selector: `:import("${request}")`,
+        nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
+      });
+      this.icss!.import.add(importNode);
+
+      // node.before(importNode);
     }
 
     node.remove();
   }
 
-  visitContentRule(node: AtRule) {
+  visitContentRule(node: Ast.ContentAtRule) {
     const content = this.currentScope.contentBlock;
 
     if (content) node.replaceWith(content.clone());
@@ -354,7 +379,7 @@ export default class Evaluator
     while (current && current.type === 'atrule') {
       const ifRule = current; // hints to TS who can't tell scope cb executes immediately
 
-      const next: postcss.ChildNode = ifRule.next()!;
+      const next: Ast.ChildNode = ifRule.next()!;
 
       if (!conditionResult && isIfRule(ifRule)) {
         const condition = ifRule.test.accept(this);
@@ -445,7 +470,7 @@ export default class Evaluator
 
       const resolvedArgs = this.evaluateArguments(args);
 
-      let content: postcss.Root | null = null;
+      let content: Ast.Root | null = null;
       // first, evaluate the content of this includes
       this.withClosure(() => {
         node.each((n) => this.visitChildNode(n));
@@ -542,8 +567,8 @@ export default class Evaluator
       return;
     }
 
-    const otherExports = this.loadModuleMembers(node.request);
-    if (!otherExports) {
+    const { module: otherModule, resolved } = this.loadModule(node.request);
+    if (!otherModule) {
       throw node.error(`Could not resolve module ${node.request}`, {
         word: node.request,
       });
@@ -555,11 +580,11 @@ export default class Evaluator
       // }
 
       if (specifier.type === 'all') {
-        exports.addAll(otherExports);
+        exports.addAll(otherModule.exports, resolved as string);
       }
 
       if (specifier.type === 'named') {
-        const other = otherExports.get(`${specifier.local}`);
+        const other = otherModule.exports.get(`${specifier.local}`);
 
         if (!other) {
           throw node.error(
@@ -569,7 +594,7 @@ export default class Evaluator
 
         exports.set(specifier.exported, {
           ...other,
-          source: node.request,
+          source: resolved as string,
         });
       }
     }
@@ -598,7 +623,7 @@ export default class Evaluator
     this.withClosure((scope) => {
       scope.currentRule = node;
 
-      let after: postcss.ChildNode = node;
+      let after: Ast.ChildNode = node;
 
       node.each((child) => {
         this.visitChildNode(child);
@@ -828,7 +853,22 @@ export default class Evaluator
     );
   }
 
-  private unwrapAtRule(atRule: AtRule, parent: Ast.Rule) {
+  visitMetaRule(node: Ast.MetaAtRule) {
+    const value = node.expression.accept(this).toString();
+    // eslint-disable-next-line default-case
+    switch (node.name) {
+      case 'debug':
+        console.log(value);
+        break;
+      case 'warn':
+        console.warn(value);
+        break;
+      case 'error':
+        throw node.error(value);
+    }
+  }
+
+  private unwrapAtRule(atRule: Ast.AtRule, parent: Ast.Rule) {
     const next = parent.clone({ nodes: [] });
 
     atRule.nodes?.forEach((c) => {

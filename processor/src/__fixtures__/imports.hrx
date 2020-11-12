@@ -1,11 +1,11 @@
-<===> placeholders/input.mcss
-@use './colors.mcss' import ($red, %color);
+<===> placeholders/input.jazz
+@use './colors.jazz' import ($red, %color);
 
 .a > %color {
   color: $red;
 }
 
-<===> placeholders/colors.mcss
+<===> placeholders/colors.jazz
 
 $red: rgb(255, 0, 0);
 
@@ -15,12 +15,12 @@ $red: rgb(255, 0, 0);
 
 @export $red;
 
-<===> placeholders/output.mcss
-/* placeholders/colors.mcss */
+<===> placeholders/output.jazz
+/* placeholders/colors.jazz */
 .colors_color {
   color: rgb(255, 0, 0);
 }
-/* placeholders/input.mcss */
+/* placeholders/input.jazz */
 .input_a > .colors_color {
   color: rgb(255, 0, 0);
 }

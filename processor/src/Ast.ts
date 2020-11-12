@@ -1,20 +1,16 @@
+/* eslint-disable @typescript-eslint/ban-types */
 /* eslint-disable no-prototype-builtins */
 /* eslint-disable no-restricted-syntax */
 /* eslint-disable @typescript-eslint/no-use-before-define */
 /* eslint-disable max-classes-per-file */
 
 import { isValid } from 'khroma';
-import type {
-  AtRule,
-  Declaration as BaseDecl,
-  Rule as BaseRule,
-  ChildNode,
-  ContainerBase,
-} from 'postcss';
+import type { Result, SourceMapOptions } from 'postcss';
 import CssSyntaxError from 'postcss/lib/css-syntax-error';
 import Input from 'postcss/lib/input';
 
 import { Location } from './parsers/location';
+import { ContainerBase, NodeBase } from './postcss-types';
 import interleave from './utils/interleave';
 import unvendor from './utils/unvendor';
 import type { ExpressionVisitor, SelectorVisitor } from './visitors';
@@ -668,7 +664,7 @@ export class List<T extends Expression = Expression> extends Container<T> {
     return result;
   }
 
-  accept<T>(visitor: ExpressionVisitor<T>): T {
+  accept<TValue>(visitor: ExpressionVisitor<TValue>): TValue {
     return visitor.visitList(this);
   }
 
@@ -1518,19 +1514,131 @@ export class MixinDeclaration extends Node {
   }
 }
 
+export type MetaAtRule = DebugAtRule | WarnAtRule | ErrorAtRule;
+
+export type ControlFlowAtRule = IfAtRule | ElseAtRule | EachAtRule;
+
+export type StatementNode =
+  | Root
+  | Rule
+  | AtRule
+  | MixinAtRule
+  | FunctionAtRule
+  | ReturnAtRule
+  | IncludeAtRule
+  | ContentAtRule
+  | ComposeAtRule
+  | ImportAtRule
+  | UseAtRule
+  | ExportAtRule
+  | CssAtRule
+  | MetaAtRule
+  | ControlFlowAtRule;
+
+export type ChildNode =
+  | Rule
+  | AtRule
+  | MixinAtRule
+  | FunctionAtRule
+  | ReturnAtRule
+  | IncludeAtRule
+  | ContentAtRule
+  | ComposeAtRule
+  | ImportAtRule
+  | UseAtRule
+  | ExportAtRule
+  | CssAtRule
+  | Declaration
+  | Comment
+  | MetaAtRule
+  | ControlFlowAtRule;
+
 // / Postcss alterations
+export type StatementBase = ContainerBase<ChildNode, StatementNode>;
 
-export type Declaration = BaseDecl &
-  ContainerBase & {
-    isNested: true;
-    ident: Variable | Ident | InterpolatedIdent;
-    valueAst: Expression;
-  };
+export interface Root extends StatementBase {
+  type: 'root';
 
-export type Rule = BaseRule & {
+  parent: void;
+
+  clone(overrides?: object): this;
+
+  toResult(options?: { to?: string; map?: SourceMapOptions }): Result;
+}
+
+export interface Comment extends NodeBase<ChildNode, StatementNode> {
+  type: 'comment';
+  parent: StatementNode;
+  text: string;
+  clone(overrides?: object): this;
+}
+
+export interface Declaration extends StatementBase {
+  type: 'decl';
+
+  parent: StatementNode;
+
+  prop: string;
+
+  value: string;
+
+  important: boolean;
+
+  isNested: true;
+  ident: Variable | Ident | InterpolatedIdent;
+  valueAst: Expression;
+  clone(overrides?: object): this;
+}
+
+export interface Rule extends StatementBase {
+  type: 'rule';
+  /**
+   * Returns the rule's parent node.
+   */
+  parent: StatementNode;
+  /**
+   * The rule's full selector. If there are multiple comma-separated selectors,
+   * the entire group will be included.
+   */
+  selector: string;
+  /**
+   * An array containing the rule's individual selectors.
+   * Groups of selectors are split at commas.
+   */
+  selectors: string[];
+  /**
+   * @param overrides New properties to override in the clone.
+   * @returns A clone of this node. The node and its (cloned) children will
+   * have a clean parent and code style properties.
+   */
+  clone(overrides?: object): this;
+
   selectorAst: StringTemplate;
   selectorList: SelectorList;
-};
+}
+
+export interface AtRule extends StatementBase {
+  type: 'atrule';
+  /**
+   * Returns the atrule's parent node.
+   */
+  parent: StatementNode;
+  /**
+   * The identifier that immediately follows the @.
+   */
+  name: string;
+  /**
+   * These are the values that follow the at-rule's name, but precede any {}
+   * block. The spec refers to this area as the at-rule's "prelude".
+   */
+  params: string;
+  /**
+   * @param overrides New properties to override in the clone.
+   * @returns A clone of this node. The node and its (cloned) children will
+   * have a clean parent and code style properties.
+   */
+  clone(overrides?: object): this;
+}
 
 export type OtherAtRule = AtRule & {
   type: Exclude<string, 'if' | 'else if'>;
@@ -1590,6 +1698,10 @@ export type IncludeAtRule = AtRule & {
   callExpressions: CallExpression[];
 };
 
+export type ContentAtRule = AtRule & {
+  name: 'content';
+};
+
 export type ComposeAtRule = AtRule & {
   name: 'compose';
   classList: Ident[];
@@ -1597,22 +1709,20 @@ export type ComposeAtRule = AtRule & {
   isGlobal: boolean;
 };
 
+export type DebugAtRule = AtRule & {
+  name: 'debug';
+  expression: Expression;
+};
+export type WarnAtRule = AtRule & {
+  name: 'warn';
+  expression: Expression;
+};
+
+export type ErrorAtRule = AtRule & {
+  name: 'error';
+  expression: Expression;
+};
+
 export type CssAtRule = AtRule & {
   paramValue: StringTemplate;
 };
-
-export type StatementNode =
-  | Rule
-  | AtRule
-  | ElseAtRule
-  | IfAtRule
-  | MixinAtRule
-  | FunctionAtRule
-  | ReturnAtRule
-  | IncludeAtRule
-  | ComposeAtRule
-  | ElseAtRule
-  | ImportAtRule
-  | UseAtRule
-  | ExportAtRule
-  | CssAtRule;

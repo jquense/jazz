@@ -4,16 +4,19 @@
 import path from 'path';
 
 import { DepGraph as Graph } from 'dependency-graph';
-import postcss, { CssSyntaxError } from 'postcss';
+import postcss, { CssSyntaxError, ProcessOptions } from 'postcss';
 // @ts-ignore
 import slug from 'unique-slug';
 
 import { JazzFile, ProcessingFile, ScriptFile } from './File';
+import ModuleMembers, { Member } from './ModuleMembers';
+import postcssParser from './parsers/jazz-postcss';
 import mergeResolvers from './resolvers';
 import type {
   AsyncResolver,
   File,
   Module,
+  ModuleType,
   ResolvedResource,
   Resolver,
 } from './types';
@@ -77,10 +80,14 @@ const DEFAULTS = {
   verbose: false,
 };
 
+export type FileDependency = {
+  type: ModuleType;
+  id: string;
+  exports: ModuleMembers;
+};
+
 class Processor {
   private log: (...args: any[]) => void;
-
-  private loadFile: any;
 
   normalize: (path: string) => string;
 
@@ -109,7 +116,7 @@ class Processor {
 
     if (typeof options.namer !== 'function') {
       options.namer = (file: string, selector: string) =>
-        `mc${slug(relative(options.cwd!, file))}_${selector}`;
+        `jz${slug(relative(options.cwd!, file))}_${selector}`;
     }
 
     this.options = options as Options;
@@ -120,40 +127,10 @@ class Processor {
       : // eslint-disable-next-line @typescript-eslint/no-empty-function
         () => {};
 
-    this.loadFile = options.loadFile;
-
     this.resolver = mergeResolvers(this.options.resolvers);
 
     this.normalize = normalizePath.bind(null, options.cwd);
   }
-
-  // async file(file: string) {
-  //   const id = this.normalize(file);
-
-  //   this.log('file()', id);
-
-  //   const text = await this.loadFile(id);
-
-  //   return this._add(id, text);
-  // }
-
-  // // Add a file by name + contents to the dependency graph
-  // string(file: string, text: string) {
-  //   const id = this.normalize(file);
-
-  //   this.log('string()', id);
-
-  //   return this._add(id, text);
-  // }
-
-  // // Add an existing postcss Root object by name
-  // root(file: string, root: postcss.Root) {
-  //   const id = this.normalize(file);
-
-  //   this.log('root()', id);
-
-  //   return this._add(id, root);
-  // }
 
   // Check if a file exists in the currently-processed set
   has(input: string) {
@@ -186,7 +163,10 @@ class Processor {
   }
 
   // Get the dependency order for a file or the entire tree
-  dependencies(file: string, options: { leavesOnly?: boolean } = {}) {
+  dependencies(
+    file: string,
+    options: { leavesOnly?: boolean } = {},
+  ): string[] {
     const { leavesOnly } = options;
 
     if (file) {
@@ -211,8 +191,12 @@ class Processor {
   }
 
   // Get the ultimate output for specific files or the entire tree
-  async output(args: { to?: string } = {}) {
-    let files = graphTiers(this.graph);
+  async output(args: { to?: string; files?: string[] } = {}) {
+    let { files } = args;
+
+    if (!files) {
+      files = graphTiers(this.graph);
+    }
 
     // Throw normalize values into a Set to remove dupes
     files = Array.from(new Set(files));
@@ -301,8 +285,8 @@ class Processor {
     };
   }
 
-  async add(file: string, content?: string): Promise<File> {
-    const id = this.normalize(file);
+  async add(_id: string, content?: string): Promise<File> {
+    const id = this.normalize(_id);
 
     // Warn about potential dupes if an ID goes past we've seen before
     const check = id.toLowerCase();
@@ -333,31 +317,70 @@ class Processor {
       await this.files.get(dep)!.process();
     }
 
-    const { module, result, valid } = this.files.get(id)!;
+    const file = this.files.get(id)!;
+    const { module, result, valid } = file;
 
-    const values: Record<string, string> = {};
-    const selectors: Record<string, string[]> = {};
+    // const values: Record<string, string> = {};
+    // const selectors: Record<string, string[]> = {};
 
-    module.exports.forEach((member) => {
-      if (member.type === 'class')
-        selectors[member.identifier] = [
-          String(member.selector.name),
-          ...member.composes.map((c) => String(c.name)),
-        ];
-      else if (member.type === 'variable') {
-        values[member.identifier] = String(member.node);
+    // module.exports.forEach((member) => {
+    //   if (member.type === 'class')
+    //     selectors[member.identifier] = [
+    //       String(member.selector.name),
+    //       ...member.composes.map((c) => String(c.name)),
+    //     ];
+    //   else if (member.type === 'variable') {
+    //     values[member.identifier] = String(member.node);
+    //   }
+    // });
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const processor = this;
+
+    const toJs = () => {
+      // @ts-ignore
+      const imports = this.graph.outgoingEdges[id];
+
+      const exports = [] as string[];
+      const grouped: Record<string, Member[]> = {};
+
+      for (const member of module.exports.values()) {
+        if (member.source) {
+          grouped[member.source] = grouped[member.source] || [];
+          grouped[member.source].push(member);
+        }
+
+        if (member.type === 'class') {
+          const classes = [
+            String(member.selector.name),
+            ...member.composes.map((c) => String(c.name)),
+          ].join(' ');
+          exports.push(`const ${member.identifier} = '${classes}';\n`);
+        } else if (member.type === 'variable') {
+          exports.push(
+            `const ${member.identifier} = ${member.node.toJSON()};\n`,
+          );
+        }
       }
-    });
+    };
 
     return {
       type: module.type,
       module,
       valid,
-      values,
-      selectors,
+      // values,
+      // selectors,
       result: result!,
+      toICSS() {
+        return (file as JazzFile).toICSS();
+      },
       get exports() {
         return module.exports.toJSON();
+      },
+      get imports() {
+        // @ts-ignore
+        return processor.graph.outgoingEdges[id].filter((dep) => {
+          return processor.files.get(dep)!.module.type !== 'jazzscript';
+        });
       },
     };
   }
@@ -406,6 +429,15 @@ class Processor {
     // Mark the walk of this file & its dependencies complete
     file.complete();
   }
+}
+
+type ParseOptions = {
+  filename?: string;
+  map?: ProcessOptions['map'];
+};
+
+export function parse(content: string, { filename, map }: ParseOptions = {}) {
+  return postcssParser(content, { from: filename, map });
 }
 
 export async function render(file: string, content?: string, opts?: Options) {

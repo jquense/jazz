@@ -1,0 +1,6 @@
+
+@each $align in ('left', 'center', 'right', 'baseline') {
+  .t-align-#{$align} {
+    text-align: $align;
+  }
+}
