@@ -10,7 +10,7 @@ describe('variable evaluation', () => {
     expect(
       await evaluate(
         css`
-          $color: red;
+          @export $color: red;
           $name: a;
 
           .foo {

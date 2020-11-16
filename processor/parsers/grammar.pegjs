@@ -691,6 +691,9 @@ exports
       request,
     );
   }
+  / id:Variable _ ":" _ varInit:Expression _ {
+    return init(Ast.ExportNamedDeclaration, id, varInit)
+  }
   / specifiers: ExportSpecifiers _ request:from_source? _ {
     return init(Ast.Export,
       specifiers,

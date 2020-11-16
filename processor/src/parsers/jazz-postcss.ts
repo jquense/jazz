@@ -146,10 +146,14 @@ export class JazzPostcssParser extends CssParser {
         break;
       }
       case 'export': {
-        const { request, specifiers } = this.parser.export(params, loc);
+        const exportNode = this.parser.export(params, loc);
 
-        (current as Ast.ExportAtRule).request = request;
-        (current as Ast.ExportAtRule).specifiers = specifiers;
+        if (exportNode.type === 'export-named-declaration') {
+          (current as Ast.ExportAtRule).declaration = exportNode;
+        } else {
+          (current as Ast.ExportAtRule).request = exportNode.request;
+          (current as Ast.ExportAtRule).specifiers = exportNode.specifiers;
+        }
         break;
       }
       case 'mixin': {

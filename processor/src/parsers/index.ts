@@ -57,7 +57,10 @@ class Parser {
     return this.parse(params, { ...options, startRule: 'uses' });
   }
 
-  export(params: string, options?: ParseOptions): Ast.Export {
+  export(
+    params: string,
+    options?: ParseOptions,
+  ): Ast.Export | Ast.ExportNamedDeclaration {
     return this.parse(params, { ...options, startRule: 'exports' });
   }
 

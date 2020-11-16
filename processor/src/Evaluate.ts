@@ -226,6 +226,13 @@ export default class Evaluator
     if (isComposeRule(node)) return this.visitComposeRule(node);
 
     if (isExportRule(node)) {
+      if (node.declaration) {
+        const decl = node.declaration;
+
+        const { name } = decl.variable;
+        this.currentScope.setVariable(name, decl.init.accept(this));
+      }
+
       this.exportNodes.add(node.remove());
       return undefined;
     }
@@ -550,6 +557,12 @@ export default class Evaluator
   }
 
   visitExportRule(node: Ast.ExportAtRule, exports: ModuleMembers) {
+    if (node.declaration) {
+      const { name } = node.declaration.variable;
+      const value = this.currentScope.get(name)!;
+      exports.set(name, { ...value });
+      return;
+    }
     if (!node.request) {
       for (const {
         exported,
@@ -563,7 +576,7 @@ export default class Evaluator
 
         exports.set(exported, { ...value });
       }
-      node.remove();
+
       return;
     }
 
@@ -574,7 +587,7 @@ export default class Evaluator
       });
     }
 
-    for (const specifier of node.specifiers) {
+    for (const specifier of node.specifiers!) {
       // if (!otherExports || !Object.keys(otherExports).length) {
       //   throw node.error(`"${node.request}" does not export anything`);
       // }

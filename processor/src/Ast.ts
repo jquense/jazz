@@ -1017,6 +1017,14 @@ export class Export extends Container<ExportSpecifier | ExportAllSpecifier> {
   }
 }
 
+export class ExportNamedDeclaration extends Node {
+  type = 'export-named-declaration' as const;
+
+  constructor(public variable: Variable, public init: Expression) {
+    super();
+  }
+}
+
 // -----
 // Control Flow
 // ----------------------------------------
@@ -1658,7 +1666,8 @@ export type UseAtRule = AtRule & {
 export type ExportAtRule = AtRule & {
   name: 'export';
   request?: string;
-  specifiers: Array<ExportSpecifier | ExportAllSpecifier>;
+  specifiers?: Array<ExportSpecifier | ExportAllSpecifier>;
+  declaration?: ExportNamedDeclaration;
 };
 
 export type EachAtRule = AtRule & {

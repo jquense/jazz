@@ -8,8 +8,8 @@ import {
   UnknownDefaultValue,
   Variable,
 } from '../Ast';
-import { parseParameters } from '../Interop';
 import * as Callable from '../Callable';
+import { parseParameters } from '../Interop';
 import { ArgumentListValue, ListValue, NumericValue } from '../Values';
 
 const v = (n: string) => new Variable(n);

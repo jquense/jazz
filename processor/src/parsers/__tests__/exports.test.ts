@@ -2,7 +2,9 @@ import Parser from '..';
 import {
   Export,
   ExportAllSpecifier,
+  ExportNamedDeclaration,
   ExportSpecifier,
+  Ident,
   Variable,
 } from '../../Ast';
 
@@ -40,6 +42,12 @@ describe('parser: exports', () => {
         new ExportSpecifier(new Variable('foo'), new Variable('foo')),
         new ExportSpecifier(new Variable('bar'), new Variable('bar')),
       ]),
+    );
+  });
+
+  it('should handle exported declarations', () => {
+    expect(parse(`$foo: bar`)).toEqual(
+      new ExportNamedDeclaration(new Variable('foo'), new Ident('bar')),
     );
   });
 
