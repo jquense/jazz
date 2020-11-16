@@ -196,9 +196,36 @@ describe('Compiler', () => {
       .m_foo {
                 color: red;
               }
-      @icss-export {$baz: blue;foo: m_foo;
+      @icss-export {$baz: 'blue';foo: m_foo;
       }
             "
+    `);
+  });
+
+  it('should generate per file JS ', async () => {
+    const processor = get();
+
+    await processor.add(
+      '/entry.jazz',
+      css`
+        @use 'string' as string;
+        @use './colors.jazz' as colors;
+
+        $baz: blue;
+
+        .foo {
+          color: colors.$red;
+        }
+
+        @export $baz;
+      `,
+    );
+
+    expect(processor.generateFileOutput('/entry.jazz')).toMatchInlineSnapshot(`
+      "import '/colors.jazz';
+      export const $baz = 'blue';
+      export const foo = 'm_foo';
+      "
     `);
   });
 

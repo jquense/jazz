@@ -33,13 +33,12 @@ export interface Module {
 
 export interface File {
   type: ModuleType;
-  // text: string;
   module: Module;
   valid: boolean;
   result: Result;
   toICSS(): Result;
-  // values: Record<string, string>;
-  // selectors: Record<string, string[]>;
+  values: Record<string, string>;
+  selectors: Record<string, string[]>;
   readonly exports: Record<string, any>;
   readonly imports: string[];
 }

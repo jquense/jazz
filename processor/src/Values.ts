@@ -61,7 +61,7 @@ export abstract class BaseValue {
   }
 
   toJSON(): any {
-    return this.toString();
+    return `'${this}'`;
   }
 
   toArray(): Value[] {

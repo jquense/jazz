@@ -320,55 +320,28 @@ class Processor {
     const file = this.files.get(id)!;
     const { module, result, valid } = file;
 
-    // const values: Record<string, string> = {};
-    // const selectors: Record<string, string[]> = {};
+    const values: Record<string, string> = {};
+    const selectors: Record<string, string[]> = {};
 
-    // module.exports.forEach((member) => {
-    //   if (member.type === 'class')
-    //     selectors[member.identifier] = [
-    //       String(member.selector.name),
-    //       ...member.composes.map((c) => String(c.name)),
-    //     ];
-    //   else if (member.type === 'variable') {
-    //     values[member.identifier] = String(member.node);
-    //   }
-    // });
+    module.exports.forEach((member) => {
+      if (member.type === 'class')
+        selectors[member.identifier] = [
+          String(member.selector.name),
+          ...member.composes.map((c) => String(c.name)),
+        ];
+      else if (member.type === 'variable') {
+        values[member.identifier] = String(member.node);
+      }
+    });
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const processor = this;
-
-    const toJs = () => {
-      // @ts-ignore
-      const imports = this.graph.outgoingEdges[id];
-
-      const exports = [] as string[];
-      const grouped: Record<string, Member[]> = {};
-
-      for (const member of module.exports.values()) {
-        if (member.source) {
-          grouped[member.source] = grouped[member.source] || [];
-          grouped[member.source].push(member);
-        }
-
-        if (member.type === 'class') {
-          const classes = [
-            String(member.selector.name),
-            ...member.composes.map((c) => String(c.name)),
-          ].join(' ');
-          exports.push(`const ${member.identifier} = '${classes}';\n`);
-        } else if (member.type === 'variable') {
-          exports.push(
-            `const ${member.identifier} = ${member.node.toJSON()};\n`,
-          );
-        }
-      }
-    };
 
     return {
       type: module.type,
       module,
       valid,
-      // values,
-      // selectors,
+      values,
+      selectors,
       result: result!,
       toICSS() {
         return (file as JazzFile).toICSS();
@@ -383,6 +356,56 @@ class Processor {
         });
       },
     };
+  }
+
+  generateFileOutput(_id: string) {
+    const id = this.normalize(_id);
+    const { module } = this.files.get(id)!;
+    // @ts-ignore
+    const imports = this.graph.outgoingEdges[id];
+
+    const exports = [] as string[];
+    const grouped: Record<string, string[]> = {};
+
+    const memberId = (member: Member) => {
+      if (member.type === 'class') return member.identifier;
+      if (member.type === 'variable') return `$${member.identifier}`;
+    };
+
+    for (const member of module.exports.values()) {
+      const identifier = memberId(member);
+      if (!identifier) continue;
+
+      if (member.source) {
+        grouped[member.source] = grouped[member.source] || [];
+        grouped[member.source].push(memberId(member)!);
+        continue;
+      }
+
+      if (member.type === 'class') {
+        const classes = [
+          `${member.selector.name}`,
+          ...member.composes.map((c) => String(c.name)),
+        ].join(' ');
+        exports.push(`export const ${identifier} = '${classes}';`);
+      } else if (member.type === 'variable') {
+        exports.push(`export const ${identifier} = ${member.node.toJSON()};`);
+      }
+    }
+
+    for (const dep of imports) {
+      let relpath = path.relative(path.dirname(id), dep);
+      if (!relpath.startsWith('.')) relpath = `./${relpath}`;
+      if (grouped[dep]) {
+        exports.push(
+          `export { ${grouped[dep].join(', ')} } from '${relpath}';`,
+        );
+      } else {
+        exports.unshift(`import '${relpath}';`);
+      }
+    }
+    exports.push('');
+    return exports.join('\n');
   }
 
   // Process files and walk their composition/value dependency tree to find
