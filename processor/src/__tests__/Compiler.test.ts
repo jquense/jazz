@@ -229,6 +229,68 @@ describe('Compiler', () => {
     `);
   });
 
+  it.only('should generate per file ICSS', async () => {
+    const processor = get();
+
+    await processor.add(
+      '/entry.jazz',
+      css`
+        @use 'string' as string;
+        @use './colors.jazz' import $red;
+
+        $baz: blue;
+
+        .foo {
+          color: $red;
+        }
+
+        @export $baz, $red;
+      `,
+    );
+
+    expect(processor.icssOutput('/entry.jazz')).toMatchInlineSnapshot(`
+      "@icss-import './colors.jazz';
+      @icss-exports {
+      	$baz: blue;
+      	$red: red;
+      	foo: m_foo
+      }
+      .m_foo {
+        color: red;
+      }"
+    `);
+  });
+
+  it('should hydrate file from icss', async () => {
+    const processor = get();
+
+    await processor.add(
+      '/entry.icss.jazz',
+      css`
+        @icss-import './colors.jazz' {
+          $red: $red;
+        }
+
+        $baz: blue;
+
+        .foo {
+          color: red;
+        }
+
+        @icss-export {
+          $baz: $baz;
+        }
+      `,
+    );
+
+    expect(processor.generateFileOutput('/entry.jazz')).toMatchInlineSnapshot(`
+      "import '/colors.jazz';
+      export const $baz = 'blue';
+      export const foo = 'm_foo';
+      "
+    `);
+  });
+
   describe('Importing files', () => {
     runFixture(`${__dirname}/../__fixtures__/imports.hrx`);
   });

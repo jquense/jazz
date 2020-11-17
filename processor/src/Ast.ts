@@ -994,7 +994,10 @@ export class ExportAllSpecifier extends Node {
 export class ExportSpecifier extends Node {
   type = 'named' as const;
 
-  constructor(public exported: Variable, public local: Variable) {
+  constructor(
+    public exported: Variable | ClassReference | Ident,
+    public local: Variable | ClassReference | Ident,
+  ) {
     super();
   }
 }
@@ -1526,6 +1529,8 @@ export type MetaAtRule = DebugAtRule | WarnAtRule | ErrorAtRule;
 
 export type ControlFlowAtRule = IfAtRule | ElseAtRule | EachAtRule;
 
+export type IcssRule = IcssImportAtRule | IcssExportAtRule;
+
 export type StatementNode =
   | Root
   | Rule
@@ -1541,7 +1546,8 @@ export type StatementNode =
   | ExportAtRule
   | CssAtRule
   | MetaAtRule
-  | ControlFlowAtRule;
+  | ControlFlowAtRule
+  | IcssRule;
 
 export type ChildNode =
   | Rule
@@ -1559,7 +1565,8 @@ export type ChildNode =
   | Declaration
   | Comment
   | MetaAtRule
-  | ControlFlowAtRule;
+  | ControlFlowAtRule
+  | IcssRule;
 
 // / Postcss alterations
 export type StatementBase = ContainerBase<ChildNode, StatementNode>;
@@ -1663,11 +1670,23 @@ export type UseAtRule = AtRule & {
   specifiers: Array<ImportNamespaceSpecifier | ImportNamedSpecifier>;
 };
 
+export type IcssImportAtRule = AtRule & {
+  name: 'icss-import';
+  // request: string;
+  // specifiers: Array<ImportNamedSpecifier>;
+};
+
 export type ExportAtRule = AtRule & {
   name: 'export';
   request?: string;
   specifiers?: Array<ExportSpecifier | ExportAllSpecifier>;
   declaration?: ExportNamedDeclaration;
+};
+
+export type IcssExportAtRule = AtRule & {
+  name: 'icss-export';
+  // request?: string;
+  // specifiers?: Array<ExportSpecifier | ExportAllSpecifier>;
 };
 
 export type EachAtRule = AtRule & {

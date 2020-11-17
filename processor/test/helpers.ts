@@ -2,6 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 
+// @ts-ignore
+import dedent from 'dedent';
 import * as MemFS from 'memfs';
 import { Volume } from 'memfs/lib/volume';
 import postcss from 'postcss';
@@ -24,7 +26,7 @@ import interleave from '../src/utils/interleave';
 import hrx from './hrx';
 
 export const css = (strings: TemplateStringsArray, ...values: any[]) => {
-  return interleave(strings, values).join('');
+  return dedent(interleave(strings, values).join(''));
 };
 
 interface Options {
@@ -47,7 +49,7 @@ export async function process(cssStr: string, options: Options = {}) {
     from: './test.jazz',
     source: false,
     trace: true,
-    evaluationScope: 'preprocess',
+    // evaluationScope: 'preprocess',
     identifierScope: hash ? 'local' : 'global',
     resolve: (url: string) => {
       return path.join(path.dirname('./test.jazz'), url);

@@ -20,6 +20,11 @@ export interface StatementVisitor<T> {
   visitMetaRule(node: Ast.MetaAtRule): T;
 }
 
+export interface IcssStatementVisitor<T> {
+  visitIcssExportRule(node: Ast.IcssExportAtRule): T;
+  visitIcssImportRule(node: Ast.IcssImportAtRule): T;
+}
+
 export interface ExpressionVisitor<T> {
   visitVariable(node: Ast.Variable): T;
   // visitClassReference(node: Ast.ClassReference): T;

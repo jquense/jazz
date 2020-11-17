@@ -1,9 +1,9 @@
 import { ParameterList } from './Ast';
+import EvaluateExpression from './Expression';
 import { InferableValue, parseParameters } from './Interop';
+import Scope from './Scope';
 import { ArgumentListValue, Value } from './Values';
 import Parser from './parsers';
-import EvaluateExpression from './Expression';
-import Scope from './Scope';
 
 const parser = new Parser();
 

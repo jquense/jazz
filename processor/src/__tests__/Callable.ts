@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-shadow */
 // @ts-nocheck
 
 /* eslint-disable @typescript-eslint/no-unused-vars, func-names, no-shadow */

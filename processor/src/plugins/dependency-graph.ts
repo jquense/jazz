@@ -1,27 +1,23 @@
 import type {
   ComposeAtRule,
   ExportAtRule,
+  IcssImportAtRule,
   ImportAtRule,
   Root,
-  StatementNode,
   UseAtRule,
 } from '../Ast';
 import { isBuiltin } from '../modules';
 import type { BeforeModularCSSOpts, PostcssPlugin } from '../types';
+import {
+  isComposeRule,
+  isExportRule,
+  isIcssImportRule,
+  isImportRule,
+  isUseRule,
+} from '../utils/Check';
+import { requestFromIcssImportRule } from '../utils/icss';
 
 const plugin = 'jazz-dependencies';
-
-const isImportRule = (n: StatementNode): n is ImportAtRule =>
-  n.type === 'atrule' && n.name === 'import';
-
-const isUseRule = (n: StatementNode): n is UseAtRule =>
-  n.type === 'atrule' && n.name === 'use';
-
-const isExportRule = (n: StatementNode): n is ExportAtRule =>
-  n.type === 'atrule' && n.name === 'export';
-
-const isComposeRule = (n: StatementNode): n is ComposeAtRule =>
-  n.type === 'atrule' && n.name === 'compose';
 
 const isPromise = <T>(value: any | Promise<T>): value is Promise<T> =>
   typeof value === 'object' && value && 'then' in value;
@@ -40,7 +36,12 @@ const notAllowed = [
   'else',
 ];
 
-type Rules = ComposeAtRule | ImportAtRule | UseAtRule | ExportAtRule;
+type Rules =
+  | ComposeAtRule
+  | ImportAtRule
+  | UseAtRule
+  | ExportAtRule
+  | IcssImportAtRule;
 
 const dependencyGraphPlugin: PostcssPlugin = (css: Root, result) => {
   const { resolve, from, modules } = result.opts as BeforeModularCSSOpts;
@@ -89,8 +90,14 @@ const dependencyGraphPlugin: PostcssPlugin = (css: Root, result) => {
   };
 
   css.walkAtRules((rule) => {
-    if (type === 'css' && notAllowed.includes(rule.name)) {
-      rule.error(`At rule ${rule.name} is not allowed in css files`);
+    if (type === 'css') {
+      if (notAllowed.includes(rule.name))
+        rule.error(`At rule ${rule.name} is not allowed in css files`);
+
+      if (isIcssImportRule(rule)) {
+        pushMessage(requestFromIcssImportRule(rule), rule);
+        return;
+      }
     }
 
     if (

@@ -43,6 +43,11 @@ const normalizePath = (cwd: string, file: string) => {
   return path.normalize(!path.isAbsolute(file) ? path.join(cwd, file) : file);
 };
 
+const memberId = (member: Member) => {
+  if (member.type === 'class') return member.identifier;
+  if (member.type === 'variable') return `$${member.identifier}`;
+};
+
 let fs: typeof import('fs');
 const defaultLoadFile = (id: string) => {
   if (!fs) {
@@ -350,27 +355,62 @@ class Processor {
         return module.exports.toJSON();
       },
       get imports() {
-        // @ts-ignore
-        return processor.graph.outgoingEdges[id].filter((dep) => {
-          return processor.files.get(dep)!.module.type !== 'jazzscript';
-        });
+        return processor.imports(id);
       },
     };
+  }
+
+  imports(id: string): string[] {
+    // @ts-ignore
+    return (this.graph.outgoingEdges[id] || []).filter((dep) => {
+      return this.files.get(dep)!.module.type !== 'jazzscript';
+    });
+  }
+
+  icssOutput(_id: string) {
+    const id = this.normalize(_id);
+    const imports = this.imports(id);
+    const { result, module } = this.files.get(id)!;
+    const { css } = result;
+
+    const grouped: Record<string, string[]> = {};
+
+    let icssExports = module.exports.toCSS('\t').join('\n');
+
+    for (const member of module.exports.values()) {
+      if (!member || !member.source) continue;
+
+      grouped[member.source] = grouped[member.source] || [];
+      // FIXME this assumes it wasn't renamed
+      grouped[member.source].push(memberId(member)!);
+    }
+
+    if (icssExports) icssExports = `@icss-exports {\n${icssExports}\n}\n`;
+
+    let icssImports = '';
+    for (const dep of imports) {
+      let relpath = path.relative(path.dirname(id), dep);
+      if (!relpath.startsWith('.')) relpath = `./${relpath}`;
+      if (grouped[dep]) {
+        icssImports += `@icss-import '${relpath}' {\n`;
+        icssImports += grouped[dep].map((d) => `\t${d}:${d};`).join('\n');
+        icssImports += '}\n';
+      } else {
+        icssImports += `@icss-import '${relpath}';\n`;
+      }
+    }
+
+    return `${icssImports}${icssExports}${css}`;
   }
 
   generateFileOutput(_id: string) {
     const id = this.normalize(_id);
     const { module } = this.files.get(id)!;
-    // @ts-ignore
-    const imports = this.graph.outgoingEdges[id];
+
+    const imports = this.imports(id);
 
     const exports = [] as string[];
     const grouped: Record<string, string[]> = {};
-
-    const memberId = (member: Member) => {
-      if (member.type === 'class') return member.identifier;
-      if (member.type === 'variable') return `$${member.identifier}`;
-    };
 
     for (const member of module.exports.values()) {
       const identifier = memberId(member);
@@ -378,6 +418,7 @@ class Processor {
 
       if (member.source) {
         grouped[member.source] = grouped[member.source] || [];
+        // FIXME this assumes it wasn't renamed
         grouped[member.source].push(memberId(member)!);
         continue;
       }

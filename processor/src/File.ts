@@ -17,7 +17,7 @@ import type {
   ModuleType,
   ResolvedResource,
 } from './types';
-import { inferIdentifierScope } from './utils/Scoping';
+import { inferIdentifierScope, inferModuleType } from './utils/Scoping';
 
 // const directDependencies = (id: string, graph: any): string[] => {
 //   return (graph as any).outgoingEdges[id];
@@ -37,6 +37,7 @@ const loadFile = (id: string) => {
 
 export abstract class ProcessingFile<TOut = any> {
   // abstract readonly text: string;
+  readonly id: string;
 
   valid = true;
 
@@ -58,7 +59,8 @@ export abstract class ProcessingFile<TOut = any> {
     return this.module.type;
   }
 
-  constructor(type: ModuleType) {
+  constructor(id: string, type: ModuleType = inferModuleType(id)) {
+    this.id = id;
     this.module = {
       type,
       scope: new Scope(),
@@ -74,6 +76,109 @@ const collectDependencies = postcss([depGraphPlugin]);
 
 const cssProcessor = postcss([valuePlugin]);
 
+// export class CssFile extends ProcessingFile<Result> {
+//   private before?: LazyResult;
+
+//   private processed?: LazyResult;
+
+//   result?: Result;
+
+//   private content: string | postcss.Root;
+
+//   constructor(
+//     id: string,
+//     content: string | Root | undefined,
+//     private processor: Processor,
+//   ) {
+//     super(id);
+
+//     this.content = content || loadFile(id);
+//   }
+
+//   get text(): string {
+//     return typeof this.content === 'string'
+//       ? this.content
+//       : // @ts-ignore
+//         this.content.source!.input.css;
+//   }
+
+//   async collectDependencies() {
+//     this.before = collectDependencies.process(
+//       this.content!,
+//       this.postcssOptions({
+//         from: this.id,
+//         // @ts-expect-error resolve allows async in before
+//         resolve: (url) =>
+//           this.processor.resolver(url, {
+//             from: this.id,
+//             cwd: this.processor.options.cwd,
+//           }),
+//       }),
+//     );
+
+//     await this.before;
+
+//     const dependencies: ResolvedResource[] = [];
+//     // Add all the found dependencies to the graph
+//     this.before.messages.forEach(({ plugin, dependency, request }) => {
+//       if (plugin !== 'jazz-dependencies') {
+//         return;
+//       }
+
+//       this.requests.set(request, this.processor.normalize(dependency.file));
+
+//       dependencies.push(dependency);
+//     });
+
+//     // this.dependencies = dependencies;
+
+//     return dependencies;
+//   }
+
+//   async process(): Promise<void> {
+//     if (this.result) return;
+
+//     if (!this.processed)
+//       this.processed = cssProcessor.process(
+//         this.before!,
+//         this.postcssOptions({
+//           from: this.id,
+//           namer: this.processor.options.namer,
+//         }),
+//       );
+
+//     this.result = await this.processed;
+//   }
+
+//   private postcssOptions({
+//     from,
+//     ...args
+//   }: { from: string } & Partial<ModularCSSOpts>) {
+//     const { options, graph, files } = this.processor;
+//     const modules = new Map<string, Module>();
+
+//     files.forEach((value, key) => {
+//       modules.set(key, value.module);
+//     });
+
+//     const identifierScope = inferIdentifierScope(from);
+
+//     return {
+//       ...options,
+//       from,
+//       modules,
+//       moduleGraph: graph,
+//       icssCompatible: false,
+//       identifierScope,
+//       parser: postcssParser,
+//       resolve: (url: string) => {
+//         return this.requests.get(url);
+//       },
+//       ...args,
+//     };
+//   }
+// }
+
 export class JazzFile extends ProcessingFile<Result> {
   private before?: LazyResult;
 
@@ -88,11 +193,11 @@ export class JazzFile extends ProcessingFile<Result> {
   private _icssResult: any;
 
   constructor(
-    private id: string,
+    id: string,
     content: string | Root | undefined,
     private processor: Processor,
   ) {
-    super(id.endsWith('.jazz') ? 'jazzcss' : 'css');
+    super(id);
 
     this.content = content || loadFile(id);
   }
@@ -220,11 +325,11 @@ export class ScriptFile extends ProcessingFile<Record<string, unknown>> {
   private content: string;
 
   constructor(
-    private id: string,
+    id: string,
     content: string | undefined,
     private processor: Processor,
   ) {
-    super('jazzscript');
+    super(id, 'jazzscript');
 
     this.content = content || loadFile(id);
     this.m = new _Module(id, module);

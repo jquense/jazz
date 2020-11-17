@@ -11,10 +11,28 @@ import { Value } from './Values';
 import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
 import type { ICSSNodes, Module, ModuleType } from './types';
+import {
+  isComposeRule,
+  isEachRule,
+  isExportRule,
+  isFunctionRule,
+  isIcssExportRule,
+  isIcssImportRule,
+  isIfRule,
+  isIncludeRule,
+  isMetaRule,
+  isMixinRule,
+  isUseRule,
+} from './utils/Check';
 import { IdentifierScope } from './utils/Scoping';
 import breakOnReturn from './utils/breakOnReturn';
 import detach from './utils/detach';
-import { SelectorVisitor, StatementVisitor } from './visitors';
+import * as ICSS from './utils/icss';
+import {
+  IcssStatementVisitor,
+  SelectorVisitor,
+  StatementVisitor,
+} from './visitors';
 
 type AnyNode = Ast.ChildNode | Ast.Node;
 
@@ -25,34 +43,6 @@ const rawOrProp = (node: Ast.StatementNode, prop: string): string => {
 
 const asComplexNodes = (node: Ast.ComplexSelector | Ast.CompoundSelector) =>
   node.type === 'compound-selector' ? [node] : node.nodes.slice();
-
-const isIfRule = (n: Ast.StatementNode): n is Ast.IfAtRule =>
-  n.type === 'atrule' && (n.name === 'if' || n.name === 'else if');
-
-const isEachRule = (n: Ast.StatementNode): n is Ast.EachAtRule =>
-  n.type === 'atrule' && n.name === 'each';
-
-const isUseRule = (n: Ast.StatementNode): n is Ast.UseAtRule =>
-  n.type === 'atrule' && n.name === 'use';
-
-const isExportRule = (n: Ast.StatementNode): n is Ast.ExportAtRule =>
-  n.type === 'atrule' && n.name === 'export';
-
-const isComposeRule = (n: Ast.StatementNode): n is Ast.ComposeAtRule =>
-  n.type === 'atrule' && n.name === 'compose';
-
-const isFunctionRule = (n: Ast.StatementNode): n is Ast.FunctionAtRule =>
-  n.type === 'atrule' && n.name === 'function';
-
-const isMixinRule = (n: Ast.StatementNode): n is Ast.MixinAtRule =>
-  n.type === 'atrule' && n.name === 'mixin';
-
-const isIncludeRule = (n: Ast.StatementNode): n is Ast.IncludeAtRule =>
-  n.type === 'atrule' && n.name === 'include';
-
-const isMetaRule = (n: Ast.StatementNode): n is Ast.MetaAtRule =>
-  n.type === 'atrule' &&
-  (n.name === 'debug' || n.name === 'warn' || n.name === 'error');
 
 const contentNodes = (node: Ast.ChildNode) =>
   node.type !== 'comment' || node.text.startsWith('!');
@@ -86,7 +76,10 @@ export type Options = {
 
 export default class Evaluator
   extends EvaluateExpression
-  implements StatementVisitor<void | Value>, SelectorVisitor<Ast.Selector> {
+  implements
+    StatementVisitor<void | Value>,
+    IcssStatementVisitor<void>,
+    SelectorVisitor<Ast.Selector> {
   private toHoist = new WeakSet<AnyNode>();
 
   private inKeyframes = false;
@@ -98,10 +91,10 @@ export default class Evaluator
 
   private keyframes = new Map<string, string>();
 
-  private imports = new Map<
-    string,
-    { exports: ModuleMembers; type: ModuleType }
-  >();
+  // private imports = new Map<
+  //   string,
+  //   { exports: ModuleMembers; type: ModuleType }
+  // >();
 
   private exportNodes = new Set<Ast.ExportAtRule>();
 
@@ -217,6 +210,7 @@ export default class Evaluator
 
     if (isMetaRule(node)) return this.visitMetaRule(node);
     if (isUseRule(node)) return this.visitUseRule(node);
+    if (isIcssImportRule(node)) return this.visitIcssImportRule(node);
 
     if (isIfRule(node)) return this.visitIfRule(node);
     if (isEachRule(node)) return this.visitEachRule(node);
@@ -225,6 +219,7 @@ export default class Evaluator
     if (isIncludeRule(node)) return this.visitIncludeRule(node);
     if (isComposeRule(node)) return this.visitComposeRule(node);
 
+    if (isIcssExportRule(node)) return this.visitIcssExportRule(node);
     if (isExportRule(node)) {
       if (node.declaration) {
         const decl = node.declaration;
@@ -261,8 +256,19 @@ export default class Evaluator
     });
   }
 
+  visitIcssImportRule(node: Ast.IcssImportAtRule) {
+    const converted = ICSS.importToUsedRule(node.remove());
+
+    return this.visitUseRule(converted);
+  }
+
+  visitIcssExportRule(node: Ast.IcssExportAtRule) {
+    this.exportNodes.add(ICSS.exportToExportRule(node));
+    node.remove();
+  }
+
   visitUseRule(node: Ast.UseAtRule) {
-    if (node.parent?.type !== 'root') {
+    if (node.parent && node.parent.type !== 'root') {
       node.error('@use rules must be in the root scope of the stylesheet');
     }
     const prev = node.prev();
@@ -317,12 +323,11 @@ export default class Evaluator
     }
 
     if (this.outputIcss && module.type !== 'jazzscript') {
-      const importNode: any = postcss.rule({
-        selector: `:import("${request}")`,
-        nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
-      });
-      this.icss!.import.add(importNode);
-
+      // const importNode: any = postcss.rule({
+      //   selector: `:import("${request}")`,
+      //   nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
+      // });
+      // this.icss!.import.add(importNode);
       // node.before(importNode);
     }
 

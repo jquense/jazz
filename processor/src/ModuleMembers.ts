@@ -48,6 +48,13 @@ export type Member =
 
 type Identifier = Ast.Ident | Ast.Variable | Ast.ClassReference;
 
+export function serializeClassMember(member: ClassReferenceMember): string {
+  return [
+    String(member.selector.name),
+    ...member.composes.map((c) => String(c.name)),
+  ].join(' ');
+}
+
 export default class ModuleMembers extends Map<string, Member> {
   addAll(members: ModuleMembers, source?: string) {
     for (const [key, item] of members) this.set(key, { ...item, source });
@@ -70,15 +77,27 @@ export default class ModuleMembers extends Map<string, Member> {
 
     for (const member of this.values()) {
       if (member.type === 'class')
-        json[member.identifier] = [
-          String(member.selector.name),
-          ...member.composes.map((c) => String(c.name)),
-        ].join(' ');
+        json[member.identifier] = serializeClassMember(member);
       else if (member.type === 'variable') {
         json[`$${member.identifier}`] = member.node.toJSON();
       }
     }
 
     return json;
+  }
+
+  toCSS(indent = '') {
+    const css: string[] = [];
+
+    for (const member of this.values()) {
+      if (member.type === 'class')
+        css.push(
+          `${indent}${member.identifier}: ${serializeClassMember(member)}`,
+        );
+      else if (member.type === 'variable') {
+        css.push(`${indent}$${member.identifier}: ${member.node};`);
+      }
+    }
+    return css;
   }
 }

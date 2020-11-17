@@ -60,7 +60,7 @@ export interface ModularCSSOpts {
   trace?: boolean;
   icssCompatible?: boolean;
   identifierScope: IdentifierScope;
-  evaluationScope: EvaluationScope;
+  // evaluationScope: EvaluationScope;
   namer?: (fileName: string, ident: string) => string;
   modules: Map<string, Module>;
 }
