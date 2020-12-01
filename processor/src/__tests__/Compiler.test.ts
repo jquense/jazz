@@ -263,7 +263,7 @@ describe('Compiler', () => {
     `);
   });
 
-  it.only('should hydrate file from icss', async () => {
+  it('should hydrate file from icss', async () => {
     const processor = get();
 
     const { result, values, selectors } = await processor.add(

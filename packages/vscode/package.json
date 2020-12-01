@@ -1,7 +1,7 @@
 {
   "name": "jazz-syntax",
   "displayName": "Jazz Syntax Theme",
-  "description": "",
+  "description": "Syntax highlighting for Jazz CSS",
   "publisher": "monasticpanic",
   "version": "0.0.2",
   "engines": {

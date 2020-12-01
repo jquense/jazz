@@ -4,7 +4,7 @@
   "main": "lib/Processor.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/4Catalyzer/unnamed-css-preprocessor.git"
+    "url": "https://github.com/jquense/jazz.git"
   },
   "author": "4Catalyzer",
   "license": "MIT",

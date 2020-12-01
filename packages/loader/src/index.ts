@@ -78,7 +78,7 @@ function loader(
   this: webpack.loader.LoaderContext,
   src: string,
   _prevMap: any,
-  meta: any,
+  _meta: any,
 ) {
   const { resourcePath, _compilation: compilation } = this;
   const cb = this.async()!;
