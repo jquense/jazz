@@ -40,7 +40,7 @@ const valueProcessingPlugin: PostcssPlugin = (css, { opts }) => {
       return {
         module: resolved ? modules.get(resolved) : undefined,
         // FIXME: this is weird here, if it's absolute tho tests are hard
-        resolved: resolved && path.relative(path.dirname(from), resolved),
+        resolved, // && path.relative(path.dirname(from), resolved),
       };
     },
     initialScope: module.scope,

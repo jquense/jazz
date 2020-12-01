@@ -2,8 +2,6 @@ import type { ModuleType } from '../types';
 
 export type IdentifierScope = 'global' | 'local';
 
-// export type EvaluationScope = 'preprocess' | 'css' | 'modular-css';
-
 export const topLevelExtension = '.jazz';
 
 export const extensions = [

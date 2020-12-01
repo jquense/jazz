@@ -21,8 +21,8 @@ export interface StatementVisitor<T> {
 }
 
 export interface IcssStatementVisitor<T> {
-  visitIcssExportRule(node: Ast.IcssExportAtRule): T;
   visitIcssImportRule(node: Ast.IcssImportAtRule): T;
+  visitIcssExportRule(node: Ast.IcssExportAtRule, exports: ModuleMembers): T;
 }
 
 export interface ExpressionVisitor<T> {

@@ -10,7 +10,7 @@ import * as UserDefinedCallable from './UserDefinedCallable';
 import { Value } from './Values';
 import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
-import type { ICSSNodes, Module, ModuleType } from './types';
+import type { ICSSNodes, Module } from './types';
 import {
   isComposeRule,
   isEachRule,
@@ -74,6 +74,8 @@ export type Options = {
   namer: (selector: string) => string;
 };
 
+type ImportedModule = { module: Module | undefined; resolved: string | false };
+
 export default class Evaluator
   extends EvaluateExpression
   implements
@@ -96,7 +98,7 @@ export default class Evaluator
   //   { exports: ModuleMembers; type: ModuleType }
   // >();
 
-  private exportNodes = new Set<Ast.ExportAtRule>();
+  private exportNodes = new Set<Ast.ExportAtRule | Ast.IcssExportAtRule>();
 
   private namer: (selector: string) => string;
 
@@ -104,9 +106,7 @@ export default class Evaluator
 
   private keyframesRegex?: RegExp;
 
-  private loadModule: (
-    request: string,
-  ) => { module: Module | undefined; resolved: string | false };
+  private loadModule: (request: string) => ImportedModule;
 
   private loadModuleMembers: (request: string) => ModuleMembers | undefined;
 
@@ -169,7 +169,8 @@ export default class Evaluator
 
     const exports = new ModuleMembers();
     this.exportNodes.forEach((n) => {
-      this.visitExportRule(n, exports);
+      if (isIcssExportRule(n)) this.visitIcssExportRule(n, exports);
+      else this.visitExportRule(n, exports);
     });
 
     this.classes.forEach((clses, key) => {
@@ -219,9 +220,8 @@ export default class Evaluator
     if (isIncludeRule(node)) return this.visitIncludeRule(node);
     if (isComposeRule(node)) return this.visitComposeRule(node);
 
-    if (isIcssExportRule(node)) return this.visitIcssExportRule(node);
-    if (isExportRule(node)) {
-      if (node.declaration) {
+    if (isExportRule(node) || isIcssExportRule(node)) {
+      if (isExportRule(node) && node.declaration) {
         const decl = node.declaration;
 
         const { name } = decl.variable;
@@ -262,9 +262,10 @@ export default class Evaluator
     return this.visitUseRule(converted);
   }
 
-  visitIcssExportRule(node: Ast.IcssExportAtRule) {
-    this.exportNodes.add(ICSS.exportToExportRule(node));
-    node.remove();
+  visitIcssExportRule(node: Ast.IcssExportAtRule, exports: ModuleMembers) {
+    ICSS.exportToMembers(node).forEach(([str, member]) =>
+      exports.set(str, member),
+    );
   }
 
   visitUseRule(node: Ast.UseAtRule) {
@@ -279,46 +280,57 @@ export default class Evaluator
       node.error('@use rules must come before any other rules');
     }
 
-    let { request, specifiers } = node;
+    const { request, specifiers } = node;
 
-    let module: { exports: ModuleMembers; type: ModuleType };
-    let source;
+    let imported: ImportedModule;
 
     if (isBuiltin(request)) {
-      module = loadBuiltIn(request);
+      imported = {
+        module: loadBuiltIn(request),
+        resolved: `${request}`,
+      };
     } else {
-      const imported = this.loadModule(request);
+      imported = this.loadModule(request);
       if (!imported.module) {
         throw node.error(`Could not resolve module ${node.request}`, {
           word: node.request,
         });
       }
-
-      source = imported.resolved as string;
-      request = imported.resolved as string;
-      module = imported.module;
       // this.imports.set(request, module);
     }
 
+    const module = imported.module!;
     const { exports } = module;
 
     for (const specifier of specifiers) {
       if (specifier.type === 'namespace') {
-        this.currentScope.addAll(exports, specifier.local.value, source);
+        this.currentScope.addAll(exports, specifier.local.value, {
+          module: imported.module!,
+          request: imported.resolved as string,
+        });
       }
       if (specifier.type === 'named') {
         const other = exports.get(specifier.imported);
 
         if (!other) {
           throw node.error(
-            `"${request}" does not export ${specifier.imported}`,
+            `"${imported.resolved || request}" does not export ${
+              specifier.imported
+            }`,
             {
               word: `${specifier.imported}`,
             },
           );
         }
 
-        this.currentScope.set(specifier.local, { ...other, source });
+        this.currentScope.set(specifier.local, {
+          ...other,
+          from: {
+            module: imported.module!,
+            original: specifier.imported,
+            request: imported.resolved as string,
+          },
+        });
       }
     }
 
@@ -598,7 +610,10 @@ export default class Evaluator
       // }
 
       if (specifier.type === 'all') {
-        exports.addAll(otherModule.exports, resolved as string);
+        exports.addAll(otherModule.exports, {
+          module: otherModule,
+          request: resolved as string,
+        });
       }
 
       if (specifier.type === 'named') {
@@ -613,6 +628,11 @@ export default class Evaluator
         exports.set(specifier.exported, {
           ...other,
           source: resolved as string,
+          from: {
+            module: otherModule,
+            original: specifier.local,
+            request: resolved as string,
+          },
         });
       }
     }

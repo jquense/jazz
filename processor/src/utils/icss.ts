@@ -1,6 +1,13 @@
 import postcss from 'postcss';
 
 import * as Ast from '../Ast';
+import {
+  ClassReferenceMember,
+  ValueMember,
+  VariableMember,
+  deserializeClassMember,
+} from '../ModuleMembers';
+import { StringValue } from '../Values';
 
 const importPattern = /^:import\(("[^"]*"|'[^']*'|[^"']+)\)$/;
 const balancedQuotes = /^("[^"]*"|'[^']*'|[^"']+)$/;
@@ -123,32 +130,27 @@ export function importToUsedRule(node: Rule) {
   return atRule;
 }
 
-export function exportToExportRule(node: Rule) {
-  const specifiers: Ast.ExportSpecifier[] = [];
+export function exportToMembers(node: Rule) {
+  const exportMembers: [string, VariableMember | ClassReferenceMember][] = [];
+
   node.walkDecls((decl) => {
     const { prop, value } = decl;
-    let local, exported;
-    switch (value[0]) {
-      case '$':
-        exported = new Ast.Variable(prop.slice(1));
-        local = new Ast.Variable(value.slice(1));
-        break;
-      case '%':
-        exported = new Ast.ClassReference(prop.slice(1));
-        local = new Ast.ClassReference(value.slice(1));
-        break;
-      default:
-        exported = new Ast.Ident(prop);
-        local = new Ast.Ident(value);
-        break;
+
+    if (prop.startsWith('$')) {
+      exportMembers.push([
+        prop,
+        {
+          type: 'variable',
+          identifier: prop.slice(1),
+          node: new StringValue(value),
+        },
+      ]);
+    } else {
+      exportMembers.push([`%${prop}`, deserializeClassMember(value, prop)]);
     }
-    specifiers.push(new Ast.ExportSpecifier(exported as any, local));
   });
 
-  const atRule: Ast.ExportAtRule = postcss.atRule({ name: 'export' }) as any;
-
-  atRule.specifiers = specifiers;
-  return atRule;
+  return exportMembers;
 }
 
 export function extract(

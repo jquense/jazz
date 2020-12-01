@@ -5,7 +5,7 @@ import type { Root } from './Ast';
 import type ModuleMembers from './ModuleMembers';
 // eslint-disable-next-line import/no-duplicates
 import type Scope from './Scope';
-import type { EvaluationScope, IdentifierScope } from './utils/Scoping';
+import type { IdentifierScope } from './utils/Scoping';
 
 export type Keys<Obj, Exclude> = {
   [P in keyof Obj]: Obj[P] extends Exclude ? P : never;
@@ -26,12 +26,13 @@ export type ICSSNodes = {
 
 export interface Module {
   type: ModuleType;
-  scope: Scope;
+  scope?: Scope;
   exports: ModuleMembers;
   icss?: ICSSNodes;
 }
 
 export interface File {
+  id?: string;
   type: ModuleType;
   module: Module;
   valid: boolean;
@@ -60,7 +61,6 @@ export interface ModularCSSOpts {
   trace?: boolean;
   icssCompatible?: boolean;
   identifierScope: IdentifierScope;
-  // evaluationScope: EvaluationScope;
   namer?: (fileName: string, ident: string) => string;
   modules: Map<string, Module>;
 }

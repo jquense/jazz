@@ -3,17 +3,34 @@ import type { Callable } from './Callable';
 import type Scope from './Scope';
 import type { MixinCallable } from './UserDefinedCallable';
 import type { Value } from './Values';
+import { Module } from './types';
+
+export type From = {
+  request: string;
+  original?: Ast.Node;
+  module: Module;
+};
+
+export type ValueMember = {
+  type: 'value';
+  identifier: string;
+  source?: string;
+  from?: From;
+  node: Value;
+};
 
 export type VariableMember = {
   type: 'variable';
   identifier: string;
   source?: string;
+  from?: From;
   node: Value;
 };
 
 export type ClassReferenceMember = {
   type: 'class';
   source?: string;
+  from?: From;
   identifier: string;
   selector: Ast.ClassSelector;
   composes: Ast.ClassSelector[];
@@ -23,6 +40,7 @@ export type FunctionMember = {
   type: 'function';
   identifier: string;
   source?: string;
+  from?: From;
   callable: Callable;
   node?: Ast.CallableDeclaration;
   scope?: Scope;
@@ -31,22 +49,39 @@ export type FunctionMember = {
 export type MixinMember = {
   type: 'mixin';
   source?: string;
+  from?: From;
   callable: MixinCallable;
 };
 
-export type Content = {
-  type: 'mixin';
-  source?: string;
-  node: Ast.CallableDeclaration;
-};
+// export type Content = {
+//   type: 'mixin';
+//   node: Ast.CallableDeclaration;
+// };
 
 export type Member =
+  | ValueMember
   | VariableMember
   | ClassReferenceMember
   | FunctionMember
   | MixinMember;
 
 type Identifier = Ast.Ident | Ast.Variable | Ast.ClassReference;
+
+export function deserializeClassMember(
+  string: string,
+  identifier: string,
+): ClassReferenceMember {
+  const [selector, ...composes] = string
+    .split(' ')
+    .map((cls) => new Ast.ClassSelector(new Ast.Ident(cls)));
+
+  return {
+    type: 'class',
+    identifier,
+    selector,
+    composes,
+  };
+}
 
 export function serializeClassMember(member: ClassReferenceMember): string {
   return [
@@ -56,8 +91,9 @@ export function serializeClassMember(member: ClassReferenceMember): string {
 }
 
 export default class ModuleMembers extends Map<string, Member> {
-  addAll(members: ModuleMembers, source?: string) {
-    for (const [key, item] of members) this.set(key, { ...item, source });
+  addAll(members: ModuleMembers, from?: From) {
+    for (const [key, item] of members)
+      this.set(key, { ...item, from: from || item.from });
   }
 
   *entries() {

@@ -1,6 +1,6 @@
 import * as Ast from './Ast';
 import type { Callable } from './Callable';
-import ModuleMembers, { Member } from './ModuleMembers';
+import ModuleMembers, { From, Member } from './ModuleMembers';
 import type { MixinCallable } from './UserDefinedCallable';
 import type { Value } from './Values';
 
@@ -9,7 +9,6 @@ export {
   ClassReferenceMember,
   FunctionMember,
   MixinMember,
-  Content,
   Member,
 } from './ModuleMembers';
 
@@ -62,9 +61,9 @@ export default class Scope {
     return parent;
   }
 
-  addAll(members: ModuleMembers, namespace?: string, source?: string) {
+  addAll(members: ModuleMembers, namespace?: string, from?: From) {
     for (const [key, value] of members) {
-      this.set(namespace ? `${namespace}.${key}` : key, { ...value, source });
+      this.set(namespace ? `${namespace}.${key}` : key, { ...value, from });
     }
 
     return this;

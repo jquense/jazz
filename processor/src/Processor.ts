@@ -342,6 +342,7 @@ class Processor {
     const processor = this;
 
     return {
+      id,
       type: module.type,
       module,
       valid,
@@ -377,15 +378,19 @@ class Processor {
 
     let icssExports = module.exports.toCSS('\t').join('\n');
 
-    for (const member of module.exports.values()) {
-      if (!member || !member.source) continue;
+    // XXX: this is weird b/c reexports use the compiled value here;
+    // for (const member of module.exports.values()) {
+    //   if (!member || !member.from) continue;
 
-      grouped[member.source] = grouped[member.source] || [];
-      // FIXME this assumes it wasn't renamed
-      grouped[member.source].push(memberId(member)!);
-    }
+    //   grouped[member.from.request] = grouped[member.from.request] || [];
+    //   // FIXME this assumes it wasn't renamed
+    //   const mid = memberId(member)!;
+    //   grouped[member.from.request].push(
+    //     `\t${mid}: ${member.from.original || mid};`,
+    //   );
+    // }
 
-    if (icssExports) icssExports = `@icss-exports {\n${icssExports}\n}\n`;
+    if (icssExports) icssExports = `@icss-export {\n${icssExports}\n}\n`;
 
     let icssImports = '';
     for (const dep of imports) {
@@ -393,14 +398,14 @@ class Processor {
       if (!relpath.startsWith('.')) relpath = `./${relpath}`;
       if (grouped[dep]) {
         icssImports += `@icss-import '${relpath}' {\n`;
-        icssImports += grouped[dep].map((d) => `\t${d}:${d};`).join('\n');
-        icssImports += '}\n';
+        icssImports += grouped[dep].join('\n');
+        icssImports += '\n}\n';
       } else {
         icssImports += `@icss-import '${relpath}';\n`;
       }
     }
 
-    return `${icssImports}${icssExports}${css}`;
+    return `${icssImports}\n${icssExports}\n${css}`;
   }
 
   generateFileOutput(_id: string) {

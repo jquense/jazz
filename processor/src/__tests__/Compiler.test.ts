@@ -229,7 +229,7 @@ describe('Compiler', () => {
     `);
   });
 
-  it.only('should generate per file ICSS', async () => {
+  it('should generate per file ICSS', async () => {
     const processor = get();
 
     await processor.add(
@@ -250,44 +250,58 @@ describe('Compiler', () => {
 
     expect(processor.icssOutput('/entry.jazz')).toMatchInlineSnapshot(`
       "@icss-import './colors.jazz';
-      @icss-exports {
+
+      @icss-export {
       	$baz: blue;
       	$red: red;
       	foo: m_foo
       }
+
       .m_foo {
         color: red;
       }"
     `);
   });
 
-  it('should hydrate file from icss', async () => {
+  it.only('should hydrate file from icss', async () => {
     const processor = get();
 
-    await processor.add(
+    const { result, values, selectors } = await processor.add(
       '/entry.icss.jazz',
       css`
         @icss-import './colors.jazz' {
           $red: $red;
         }
 
-        $baz: blue;
-
-        .foo {
-          color: red;
+        .m_foo {
+          color: $red;
         }
 
         @icss-export {
           $baz: $baz;
+          foo: m_foo px-1;
         }
       `,
     );
 
-    expect(processor.generateFileOutput('/entry.jazz')).toMatchInlineSnapshot(`
-      "import '/colors.jazz';
-      export const $baz = 'blue';
-      export const foo = 'm_foo';
-      "
+    expect(result.css).toMatchInlineSnapshot(`
+      ".m_foo {
+        color: red;
+      }"
+    `);
+
+    expect(values).toMatchInlineSnapshot(`
+      Object {
+        "baz": "$baz",
+      }
+    `);
+    expect(selectors).toMatchInlineSnapshot(`
+      Object {
+        "foo": Array [
+          "m_foo",
+          "px-1",
+        ],
+      }
     `);
   });
 
