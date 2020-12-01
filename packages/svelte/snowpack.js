@@ -1,4 +1,4 @@
-const Processor = require('jazzjs').default;
+const Processor = require('jazzcss').default;
 
 module.exports = function jazzPlugin(_, __) {
   const jazz = new Processor();

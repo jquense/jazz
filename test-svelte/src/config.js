@@ -1,4 +1,4 @@
-// import type { StringValue, Value } from 'jazzjs/lib/Values';
+// import type { StringValue, Value } from 'jazzcss/lib/Values';
 // import { cosmiconfigSync } from 'cosmiconfig';
 const get = require('lodash/get');
 

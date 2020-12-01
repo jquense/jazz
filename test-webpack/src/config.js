@@ -1,4 +1,4 @@
-import type { ListValue, Value } from 'jazzjs/lib/Values';
+import type { ListValue, Value } from 'jazzcss/lib/Values';
 
 // import { cosmiconfigSync } from 'cosmiconfig';
 const get = require('lodash/get');

@@ -4,7 +4,7 @@
   "devDependencies": {
     "cross-env": "^5.2.0",
     "css-loader": "^5.0.0",
-    "jazzjs": "*",
+    "jazzcss": "*",
     "jazz-svelte": "*",
     "mini-css-extract-plugin": "^1.2.1",
     "serve": "^11.0.0",

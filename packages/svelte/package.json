@@ -34,7 +34,7 @@
     "escape-string-regexp": "^4.0.0",
     "identifierfy": "^2.0.0",
     "is-url": "^1.2.4",
-    "jazzjs": "*",
+    "jazzcss": "*",
     "rollup-pluginutils": "^2.8.2",
     "slash": "^3.0.0"
   }

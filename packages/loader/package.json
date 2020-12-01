@@ -51,7 +51,7 @@
   "dependencies": {
     "@types/loader-utils": "^2.0.1",
     "cssesc": "^3.0.0",
-    "jazzjs": "*",
+    "jazzcss": "*",
     "loader-utils": "^2.0.0",
     "webpack": "^4.44.1"
   }

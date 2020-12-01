@@ -1,4 +1,4 @@
-const Jazz = require('jazzjs').default;
+const Jazz = require('jazzcss').default;
 
 const styleRegex = /<style([\S\s]*?)>([\S\s]*?)<\/style>/im;
 

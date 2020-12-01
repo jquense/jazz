@@ -2,7 +2,7 @@ const path = require('path');
 
 const dedent = require('dedent');
 // const identifierfy = require('identifierfy');
-const Processor = require('jazzjs').default;
+const Processor = require('jazzcss').default;
 const utils = require('rollup-pluginutils');
 
 const DEFAULT_EXT = '.css';

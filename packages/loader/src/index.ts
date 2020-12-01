@@ -2,7 +2,7 @@
 import path from 'path';
 import { promisify } from 'util';
 
-import Processor, { AsyncResolver, File, Options } from 'jazzjs';
+import Processor, { AsyncResolver, File, Options } from 'jazzcss';
 import { getOptions } from 'loader-utils';
 import type webpack from 'webpack';
 
