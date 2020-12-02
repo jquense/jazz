@@ -4,7 +4,12 @@
 import path from 'path';
 
 import { DepGraph as Graph } from 'dependency-graph';
-import postcss, { CssSyntaxError, ProcessOptions } from 'postcss';
+import postcss, {
+  CssSyntaxError,
+  Plugin,
+  ProcessOptions,
+  Result,
+} from 'postcss';
 // @ts-ignore
 import slug from 'unique-slug';
 
@@ -34,6 +39,10 @@ export type {
   CssSyntaxError,
 };
 
+const nullPlugin: Plugin = {
+  postcssPlugin: 'null-plugin',
+  Once() {},
+};
 // Get a relative version of an absolute path w/ cross-platform/URL-friendly
 // directory separators
 const relative = (cwd: string, file: string) =>
@@ -48,24 +57,13 @@ const memberId = (member: Member) => {
   if (member.type === 'variable') return `$${member.identifier}`;
 };
 
-let fs: typeof import('fs');
-const defaultLoadFile = (id: string) => {
-  if (!fs) {
-    const name = 'fs';
-    fs = require(name);
-  }
-
-  return fs.readFileSync(id, 'utf8');
-};
-
 export type Options = {
   cwd: string;
   map: boolean;
   dupewarn: boolean;
-  // postcss: Record<string, unknown>;
   resolvers: Resolver[] | Array<Resolver | AsyncResolver>;
   icssCompatible: boolean;
-  loadFile: (id: string) => string | Promise<string>;
+  postcssPlugins?: any[];
   namer: (file: string, selector: string) => string;
   verbose: boolean;
 };
@@ -76,10 +74,7 @@ const DEFAULTS = {
 
   dupewarn: true,
   icssCompatible: false,
-  loadFile: defaultLoadFile,
 
-  // namer: () => ``,
-  // postcss: {},
   resolvers: [],
   rewrite: true,
   verbose: false,
@@ -268,7 +263,7 @@ class Processor {
       }
     });
 
-    const result = await postcss([() => true]).process(root, {
+    const result = await postcss([nullPlugin]).process(root, {
       from: '', // FIXME
       ...args,
     });
@@ -285,7 +280,7 @@ class Processor {
       },
     });
 
-    return result as postcss.Result & {
+    return result as Result & {
       exports: Record<string, Record<string, string>>;
     };
   }
@@ -471,7 +466,12 @@ class Processor {
     this.log('before()', name);
 
     const file = isStyleFile(name)
-      ? new JazzFile(name, content, this)
+      ? new JazzFile({
+          id: name,
+          content,
+          processor: this,
+          plugins: this.options.postcssPlugins,
+        })
       : new ScriptFile(name, content, this);
 
     this.files.set(name, file);

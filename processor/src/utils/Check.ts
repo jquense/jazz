@@ -1,4 +1,8 @@
 import type * as Ast from '../Ast';
+import type { Value, VarFunctionCall } from '../Values';
+
+export const isVarCall = (n: Value): n is VarFunctionCall =>
+  n.type === 'string' && n.isVarCall;
 
 export const isIfRule = (n: Ast.StatementNode): n is Ast.IfAtRule =>
   n.type === 'atrule' && (n.name === 'if' || n.name === 'else if');

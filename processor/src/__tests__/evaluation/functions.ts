@@ -1,8 +1,7 @@
-import { Selectors, css, evaluate, process } from '../../../test/helpers';
+import { css, evaluate, process } from '../../../test/helpers';
 import * as Callable from '../../Callable';
 import ModuleMembers from '../../ModuleMembers';
 import Scope from '../../Scope';
-import { StringValue } from '../../Values';
 
 describe('function evaluation', () => {
   it('should leave unknown funcs alone', async () => {
@@ -85,6 +84,8 @@ describe('function evaluation', () => {
             .foo {
               a: rgb(1 2 4 / 0.5);
               b: rgba(50%, 20%, 50%, 1);
+              c: rgb(128, var(--blue), 1);
+              d: rgba(128, var(--blue), 1);
             }
           `,
         ),
@@ -92,6 +93,8 @@ describe('function evaluation', () => {
         .foo {
           a: rgba(1, 2, 4, 0.5);
           b: rgb(128, 51, 128);
+          c: rgb(128, var(--blue), 1);
+          d: rgba(128, var(--blue), 1);
         }
       `);
     });
@@ -116,6 +119,9 @@ describe('function evaluation', () => {
             .foo {
               a: hsl(120, 100%, 40%);
               b: hsl(270 60% 50% / 0.15);
+              c: hsl(128, var(--blue), 1);
+              d: hsla(128, var(--blue), 1);
+              e: hsla(var(--blue));
             }
           `,
         ),
@@ -123,6 +129,9 @@ describe('function evaluation', () => {
         .foo {
           a: hsl(120, 100%, 40%);
           b: hsla(270, 60%, 50%, 0.15);
+          c: hsl(128, var(--blue), 1);
+          d: hsla(128, var(--blue), 1);
+          e: hsla(var(--blue));
         }
       `);
     });

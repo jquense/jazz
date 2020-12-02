@@ -1,11 +1,9 @@
-import postcss from 'postcss';
+import { Node } from 'postcss';
 import CssParser, { Token } from 'postcss-scss/lib/scss-parser';
 import Input from 'postcss/lib/input';
 
 import * as Ast from '../Ast';
 import Parser from './index';
-// @ts-expect-error
-import tokenizer from './vendor/tokenize';
 
 function firstValueWord(tokens: Token[]) {
   let foundValue = false;
@@ -25,7 +23,7 @@ function identIsLikelyCssVar(node: Ast.Expression) {
   return false;
 }
 
-function prevNonComment(node?: any): postcss.Node | undefined {
+function prevNonComment(node?: any): Node | undefined {
   while (node?.type === 'comment') {
     node = node.prev();
   }
@@ -43,10 +41,6 @@ export class JazzPostcssParser extends CssParser {
   constructor(input: Input, opts: any) {
     super(input, opts);
     this.parser = new Parser({ source: input, ...opts });
-  }
-
-  createTokenizer() {
-    this.tokenizer = tokenizer(this.input);
   }
 
   rule(tokens: any) {
@@ -207,7 +201,7 @@ export class JazzPostcssParser extends CssParser {
     let next;
     const rest = [];
 
-    const prev = prevNonComment(this.current.last);
+    const prev = prevNonComment(this.current.last) as any;
 
     if (
       !prev ||

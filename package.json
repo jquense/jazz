@@ -7,7 +7,6 @@
   "workspaces": {
     "packages": [
       "processor",
-      "www",
       "packages/*",
       "test-*"
     ]

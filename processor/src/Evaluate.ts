@@ -149,7 +149,6 @@ export default class Evaluator
       case 'rule':
         return this.visitRule(node as Ast.Rule);
       case 'comment':
-        // @ts-expect-error
         if (node.raws.inline) node.remove();
         break;
       default:
@@ -204,7 +203,7 @@ export default class Evaluator
     });
   }
 
-  visitAtRule(node: Ast.AtRule): void | Value {
+  visitAtRule(node: Ast.AtRule | Ast.CssAtRule): void | Value {
     if (this.toHoist.has(node)) {
       return undefined;
     }
@@ -239,9 +238,10 @@ export default class Evaluator
     }
 
     const isKeyFrames = node.name === 'keyframes';
-    const paramValue = (node as Ast.CssAtRule).paramValue.accept(this);
 
-    node.params = paramValue.toString();
+    if ('paramValue' in node) {
+      node.params = (node as Ast.CssAtRule).paramValue.accept(this).toString();
+    }
 
     if (isKeyFrames) {
       this.parseKeyframesParams(node as Ast.CssAtRule);
@@ -257,13 +257,13 @@ export default class Evaluator
   }
 
   visitIcssImportRule(node: Ast.IcssImportAtRule) {
-    const converted = ICSS.importToUsedRule(node.remove());
+    const converted = ICSS.importToUsedRule(node.remove() as any);
 
     return this.visitUseRule(converted);
   }
 
   visitIcssExportRule(node: Ast.IcssExportAtRule, exports: ModuleMembers) {
-    ICSS.exportToMembers(node).forEach(([str, member]) =>
+    ICSS.exportToMembers(node as any).forEach(([str, member]) =>
       exports.set(str, member),
     );
   }
@@ -643,7 +643,9 @@ export default class Evaluator
       return;
     }
 
-    node.selector = node.selectorAst.accept(this).toString();
+    if (node.selectorAst) {
+      node.selector = node.selectorAst.accept(this).toString();
+    }
 
     if (this.inKeyframes) {
       this.withClosure(() => {
@@ -693,24 +695,24 @@ export default class Evaluator
   }
 
   visitDeclaration(node: Ast.Declaration): void {
-    const value = node.valueAst.accept(this);
+    const value = node.valueAst?.accept(this);
 
-    if (node.ident.type === 'variable') {
+    if (node.ident?.type === 'variable') {
       const { name } = node.ident;
 
-      this.currentScope.setVariable(name, value);
+      this.currentScope.setVariable(name, value!);
 
       node.remove();
       return;
     }
 
-    if (value.type === 'null') {
+    if (value?.type === 'null') {
       node.remove();
       return;
     }
 
-    node.prop = node.ident.accept(this).toString();
-    node.value = value.toString();
+    if (node.ident) node.prop = node.ident.accept(this).toString();
+    if (value) node.value = value.toString();
 
     if (
       this.keyframesRegex &&

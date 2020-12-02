@@ -1,9 +1,8 @@
-import postcss from 'postcss';
+import * as postcss from 'postcss';
 
 import * as Ast from '../Ast';
 import {
   ClassReferenceMember,
-  ValueMember,
   VariableMember,
   deserializeClassMember,
 } from '../ModuleMembers';
@@ -35,6 +34,7 @@ export const createImports = (
       postcss.decl({
         prop: key,
         value: aliases[key],
+        // @ts-ignore
         raws: { before: '\n  ' },
       }),
     );
@@ -69,6 +69,7 @@ export const createExports = (
     postcss.decl({
       prop: key,
       value: exports[key],
+      // @ts-ignore
       raws: { before: '\n  ' },
     }),
   );

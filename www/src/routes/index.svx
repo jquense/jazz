@@ -1,0 +1,19 @@
+<svelte:head>
+
+<title>Sapper project template</title>
+
+  <link href="prism.css" rel="stylesheet" />
+</svelte:head>
+
+
+# Great success!
+
+![success kid](successkid.jpg)
+
+**Try editing this file (src/routes/index.svelte) to test live reloading.**
+
+```jazz
+  .foo {
+		bar: $foo;
+	}
+```

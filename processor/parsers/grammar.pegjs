@@ -676,8 +676,24 @@ compose_list '@compose'
     return init(Ast.Composition, classes, false)
   }
 
+ws_or_comma "space or comma"
+  = _ "," _
+  / __
+
+class_char
+  = [_a-z0-9-:]i
+  / nonascii
+  / escape
+
+// slight alteration to the normal Ident, that allows unescaped `:` in a class name
+// for use of use in tailwind. Safe enough because this is in the context of an at-rule
+ClassIdent "class name"
+  =  prefix:$"-"? start:nmstart chars:class_char* {
+      return init(Ast.Ident, prefix + start + chars.join(""));
+  }
+
 class_list
-  = head:Ident tail:(_ "," _ ref:Ident { return ref; })* {
+  = head:Ident tail:(ws_or_comma !(from_source) ref:ClassIdent { return ref; })* {
     return [head].concat(tail)
   }
 

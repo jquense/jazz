@@ -1,16 +1,31 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import type {
   CssSyntaxError,
-  NodeErrorOptions,
-  NodeRaws,
-  NodeSource,
   Result,
+  Source,
   Stringifier,
   Syntax,
   WarningOptions,
-} from 'postcss';
+} from 'postcss/lib/postcss';
 
 import type { AtRule, Comment, Declaration, Root, Rule } from './Ast';
+
+interface NodeErrorOptions {
+  /**
+   * Plugin name that created this error. PostCSS will set it automatically.
+   */
+  plugin?: string;
+  /**
+   * A word inside a node's string, that should be highlighted as source
+   * of error.
+   */
+  word?: string;
+  /**
+   * An index inside a node's string that should be highlighted as source
+   * of error.
+   */
+  index?: number;
+}
 
 export interface NodeBase<TChild, TNode> {
   /**
@@ -22,12 +37,12 @@ export interface NodeBase<TChild, TNode> {
    * (in which case the new node's source will reference the original,
    * cloned node) or setting the source property manually.
    */
-  source?: NodeSource;
+  source?: Source;
   /**
    * Contains information to generate byte-to-byte equal node string as it
    * was in origin input.
    */
-  raws: NodeRaws;
+  raws: any;
 
   root(): Root;
 

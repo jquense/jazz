@@ -194,11 +194,12 @@ describe('Compiler', () => {
     expect(details.toICSS().css).toMatchInlineSnapshot(`
       "@icss-import \\"colors.jazz\\";
       .m_foo {
-                color: red;
-              }
-      @icss-export {$baz: 'blue';foo: m_foo;
+        color: red;
       }
-            "
+      @icss-export {
+        $baz: 'blue';
+        foo: m_foo;
+      }"
     `);
   });
 
@@ -222,7 +223,7 @@ describe('Compiler', () => {
     );
 
     expect(processor.generateFileOutput('/entry.jazz')).toMatchInlineSnapshot(`
-      "import '/colors.jazz';
+      "import './colors.jazz';
       export const $baz = 'blue';
       export const foo = 'm_foo';
       "

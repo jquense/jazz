@@ -1600,8 +1600,8 @@ export interface Declaration extends StatementBase {
   important: boolean;
 
   isNested: true;
-  ident: Variable | Ident | InterpolatedIdent;
-  valueAst: Expression;
+  ident?: Variable | Ident | InterpolatedIdent;
+  valueAst?: Expression;
   clone(overrides?: object): this;
 }
 
@@ -1628,7 +1628,7 @@ export interface Rule extends StatementBase {
    */
   clone(overrides?: object): this;
 
-  selectorAst: StringTemplate;
+  selectorAst?: StringTemplate;
   selectorList: SelectorList;
 }
 

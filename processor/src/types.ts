@@ -1,5 +1,5 @@
 import type { DepGraph } from 'dependency-graph';
-import type { ProcessOptions, Result, Rule } from 'postcss';
+import type { Plugin, ProcessOptions, Result, Rule } from 'postcss';
 
 import type { Root } from './Ast';
 import type ModuleMembers from './ModuleMembers';
@@ -48,10 +48,10 @@ export type PostcssProcessOptions = ProcessOptions & ModularCSSOpts;
 
 export type PostcssPluginResult = Result & { opts: ModularCSSOpts };
 
-export type PostcssPlugin = { postcssPlugin?: string } & ((
-  root: Root,
-  result: PostcssPluginResult,
-) => Promise<any> | any);
+// export type PostcssPlugin = { postcssPlugin?: string } & ((
+//   root: Root,
+//   result: PostcssPluginResult,
+// ) => Promise<any> | any);
 
 export interface ModularCSSOpts {
   from: string;

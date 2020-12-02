@@ -66,6 +66,7 @@ export abstract class ProcessingFile<TOut = any> {
       scope: new Scope(),
       exports: new ModuleMembers(),
     };
+
     this.ready = new Promise((done) => {
       this.complete = done;
     });
@@ -74,110 +75,12 @@ export abstract class ProcessingFile<TOut = any> {
 
 const collectDependencies = postcss([depGraphPlugin]);
 
-const cssProcessor = postcss([valuePlugin]);
-
-// export class CssFile extends ProcessingFile<Result> {
-//   private before?: LazyResult;
-
-//   private processed?: LazyResult;
-
-//   result?: Result;
-
-//   private content: string | postcss.Root;
-
-//   constructor(
-//     id: string,
-//     content: string | Root | undefined,
-//     private processor: Processor,
-//   ) {
-//     super(id);
-
-//     this.content = content || loadFile(id);
-//   }
-
-//   get text(): string {
-//     return typeof this.content === 'string'
-//       ? this.content
-//       : // @ts-ignore
-//         this.content.source!.input.css;
-//   }
-
-//   async collectDependencies() {
-//     this.before = collectDependencies.process(
-//       this.content!,
-//       this.postcssOptions({
-//         from: this.id,
-//         // @ts-expect-error resolve allows async in before
-//         resolve: (url) =>
-//           this.processor.resolver(url, {
-//             from: this.id,
-//             cwd: this.processor.options.cwd,
-//           }),
-//       }),
-//     );
-
-//     await this.before;
-
-//     const dependencies: ResolvedResource[] = [];
-//     // Add all the found dependencies to the graph
-//     this.before.messages.forEach(({ plugin, dependency, request }) => {
-//       if (plugin !== 'jazz-dependencies') {
-//         return;
-//       }
-
-//       this.requests.set(request, this.processor.normalize(dependency.file));
-
-//       dependencies.push(dependency);
-//     });
-
-//     // this.dependencies = dependencies;
-
-//     return dependencies;
-//   }
-
-//   async process(): Promise<void> {
-//     if (this.result) return;
-
-//     if (!this.processed)
-//       this.processed = cssProcessor.process(
-//         this.before!,
-//         this.postcssOptions({
-//           from: this.id,
-//           namer: this.processor.options.namer,
-//         }),
-//       );
-
-//     this.result = await this.processed;
-//   }
-
-//   private postcssOptions({
-//     from,
-//     ...args
-//   }: { from: string } & Partial<ModularCSSOpts>) {
-//     const { options, graph, files } = this.processor;
-//     const modules = new Map<string, Module>();
-
-//     files.forEach((value, key) => {
-//       modules.set(key, value.module);
-//     });
-
-//     const identifierScope = inferIdentifierScope(from);
-
-//     return {
-//       ...options,
-//       from,
-//       modules,
-//       moduleGraph: graph,
-//       icssCompatible: false,
-//       identifierScope,
-//       parser: postcssParser,
-//       resolve: (url: string) => {
-//         return this.requests.get(url);
-//       },
-//       ...args,
-//     };
-//   }
-// }
+interface JazzFileOptions {
+  id: string;
+  content: string | Root | undefined;
+  processor: Processor;
+  plugins?: any[];
+}
 
 export class JazzFile extends ProcessingFile<Result> {
   private before?: LazyResult;
@@ -186,20 +89,23 @@ export class JazzFile extends ProcessingFile<Result> {
 
   result?: Result;
 
-  private content: string | postcss.Root;
+  private processor: Processor;
+
+  private content: string | Root;
 
   private dependencies?: ResolvedResource[];
 
   private _icssResult: any;
 
-  constructor(
-    id: string,
-    content: string | Root | undefined,
-    private processor: Processor,
-  ) {
-    super(id);
+  private cssProcessor: ReturnType<typeof postcss>;
 
-    this.content = content || loadFile(id);
+  constructor(options: JazzFileOptions) {
+    super(options.id);
+
+    this.content = options.content || loadFile(options.id);
+    this.processor = options.processor;
+
+    this.cssProcessor = postcss([...(options.plugins || []), valuePlugin]);
   }
 
   get text(): string {
@@ -220,7 +126,7 @@ export class JazzFile extends ProcessingFile<Result> {
             from: this.id,
             cwd: this.processor.options.cwd,
           }),
-      }),
+      }) as any,
     );
 
     await this.before;
@@ -246,12 +152,12 @@ export class JazzFile extends ProcessingFile<Result> {
     if (this.result) return;
 
     if (!this.processed)
-      this.processed = cssProcessor.process(
+      this.processed = this.cssProcessor.process(
         this.before!,
         this.postcssOptions({
           from: this.id,
           namer: this.processor.options.namer,
-        }),
+        }) as any,
       );
 
     this.result = await this.processed;
@@ -288,27 +194,33 @@ export class JazzFile extends ProcessingFile<Result> {
   toICSS() {
     if (!this._icssResult) {
       this._icssResult = postcss([
-        (root) => {
-          for (const dep of this.dependencies!) {
-            root.prepend(
-              postcss.atRule({
-                name: 'icss-import',
-                params: `"${path.relative(path.dirname(this.id), dep.file)}"`,
-                // nodes: [postcss.decl({ prop: '____a', value: 'a' })],
-              }),
-            );
-          }
+        {
+          postcssPlugin: 'jazz-icss-output',
+          Once: (root) => {
+            for (const dep of this.dependencies!) {
+              root.prepend(
+                postcss.atRule({
+                  name: 'icss-import',
+                  params: `"${path.relative(
+                    path.dirname(this.id),
+                    dep.file,
+                  )}"`,
+                  // nodes: [postcss.decl({ prop: '____a', value: 'a' })],
+                }),
+              );
+            }
 
-          const entries = Object.entries(this.module.exports.toJSON());
-          if (entries.length) {
-            const exportNode: any = postcss.atRule({
-              name: 'icss-export',
-              nodes: entries.map(([prop, value]) =>
-                postcss.decl({ prop, value }),
-              ),
-            });
-            root.append(exportNode);
-          }
+            const entries = Object.entries(this.module.exports.toJSON());
+            if (entries.length) {
+              const exportNode: any = postcss.atRule({
+                name: 'icss-export',
+                nodes: entries.map(([prop, value]) =>
+                  postcss.decl({ prop, value }),
+                ),
+              });
+              root.append(exportNode);
+            }
+          },
         },
       ]).process(this.result!, { from: this.id });
     }

@@ -5,9 +5,11 @@ import {
   HslValue,
   MathValue,
   RgbValue,
+  StringValue,
   Value,
   assertType,
 } from './Values';
+import { isVarCall } from './utils/Check';
 import * as math from './utils/Math';
 
 // -- Math
@@ -68,28 +70,54 @@ function toAlphaValue(value?: Value) {
 
 type Channels = [number, number, number];
 
-function validateArgs(
+interface ColorCtor<T> {
+  new (c: Channels | AnyColorValue, a: number | undefined): T;
+}
+
+function color<T extends AnyColorValue>(
+  name: string,
   pattern: string[],
   args: ArgumentListValue,
   fn: (v: Value) => number,
-): [Channels | AnyColorValue, number | undefined] {
+  Ctor: ColorCtor<T>,
+): T | StringValue {
   args = normalizeSlashList(args);
   let result: Channels | AnyColorValue;
+  const orderArgs: Value[] = Array(pattern.length);
+  const alphaValue = args[pattern.length] || args.keywords.alpha;
+
+  // Check if any of the arguments are var(--custom), if so bail
+  //   and return a string of the function call since we can't process it
+  let hasVar = !!alphaValue && isVarCall(alphaValue);
+
+  for (let i = 0; i < pattern.length; i++) {
+    const value = args[i] || args.keywords[pattern[i]];
+    orderArgs[i] = value;
+
+    if (value && !hasVar) {
+      hasVar = isVarCall(value);
+    }
+  }
+
+  if (hasVar) {
+    if (alphaValue) orderArgs.push(alphaValue);
+    return new StringValue(`${name}(${orderArgs.filter(Boolean).join(', ')})`);
+  }
 
   if (args.length === 1) {
     assertType(args[0], 'color');
     result = args[0];
   } else {
-    result = new Array<number>(pattern.length) as Channels;
-
-    for (let i = 0; i < pattern.length; i++) {
-      const value = args[i] || args.keywords[pattern[i]];
-      assertArg(value!, pattern[i]);
-      result[i] = fn(value);
-    }
+    result = orderArgs.map((arg, i) => {
+      assertArg(arg!, pattern[i]);
+      return fn(arg);
+    }) as Channels;
   }
-  return [result, toAlphaValue(args[pattern.length] || args.keywords.alpha)];
+
+  return new Ctor(result, toAlphaValue(alphaValue));
 }
+
+type Args = { args: ArgumentListValue };
 
 function toRGBValue(value: Value) {
   assertType(value, 'numeric');
@@ -101,14 +129,12 @@ function toRGBValue(value: Value) {
 
 const rgbArgs = ['red', 'green', 'blue'];
 
-function rgbaImpl({ args }: { args: ArgumentListValue }) {
-  const [channels, alpha] = validateArgs(rgbArgs, args, toRGBValue);
-
-  return new RgbValue(channels, alpha);
-}
-
-export const rgb = create('rgb', '$args...', rgbaImpl);
-export const rgba = create('rgba', '$args...', rgbaImpl);
+export const rgb = create('rgb', '$args...', ({ args }: Args) =>
+  color('rgb', rgbArgs, args, toRGBValue, RgbValue),
+);
+export const rgba = create('rgba', '$args...', ({ args }: Args) =>
+  color('rgba', rgbArgs, args, toRGBValue, RgbValue),
+);
 
 function toHSLValue(value: Value) {
   return value.assertType('numeric').value;
@@ -116,11 +142,10 @@ function toHSLValue(value: Value) {
 
 const hslArgs = ['hue', 'saturation', 'lightness'];
 
-function hslaImpl({ args }: { args: ArgumentListValue }) {
-  const [channels, alpha] = validateArgs(hslArgs, args, toHSLValue);
+export const hsl = create('hsl', '$args...', ({ args }: Args) =>
+  color('hsl', hslArgs, args, toHSLValue, HslValue),
+);
 
-  return new HslValue(channels, alpha);
-}
-
-export const hsl = create('hsl', '$args...', hslaImpl);
-export const hsla = create('hsla', '$args...', hslaImpl);
+export const hsla = create('hsla', '$args...', ({ args }: Args) =>
+  color('hsla', hslArgs, args, toHSLValue, HslValue),
+);
