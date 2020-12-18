@@ -1,12 +1,16 @@
 /* eslint-disable no-return-assign */
 
-// @ts-ignore
-// eslint-disable-next-line import/no-extraneous-dependencies
-import Tracer from 'pegjs-backtrace';
-
 import * as Ast from '../Ast';
 import { Location, getPosition } from './location';
 import { IParseOptions, parse } from './parser';
+
+let Tracer: any = null;
+try {
+  // eslint-disable-next-line import/no-extraneous-dependencies
+  Tracer = require('pegjs-backtrace');
+} catch (err) {
+  /* ignore */
+}
 
 type ParseOptions = {
   offset?: Location;
