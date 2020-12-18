@@ -1,5 +1,4 @@
 import { css, evaluate } from '../../../test/helpers';
-import * as Ast from '../../Ast';
 
 describe('if/else evaluation', () => {
   it('should evaluate @if', async () => {

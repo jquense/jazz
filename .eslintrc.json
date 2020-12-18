@@ -19,7 +19,8 @@
     "no-multi-assign": "off",
     "no-nested-ternary": "off",
     "consistent-return": "off",
-    "@typescript-eslint/no-empty-function": "off"
+    "@typescript-eslint/no-empty-function": "off",
+    "@typescript-eslint/ban-types": "off"
   },
   "overrides": [
     {

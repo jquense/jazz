@@ -1,9 +1,9 @@
 import {
+  ListValue,
   NumericValue,
   StringValue,
   Value,
   assertType,
-  ListValue,
 } from '../Values';
 import { namedFunction } from '../utils/named-function';
 
@@ -26,7 +26,7 @@ export function index(string: Value, substring: Value) {
   return new NumericValue(string.value.indexOf(substring.value));
 }
 
-// eslint-disable-next-line no-shadow
+// eslint-disable-next-line @typescript-eslint/no-shadow
 export function insert(string: Value, insert: Value, idx: Value) {
   assertType(string, 'string');
   const i = idx.assertType('numeric').value;

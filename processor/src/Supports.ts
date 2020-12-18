@@ -1,7 +1,7 @@
 // @ts-ignore
-import * as db from 'caniuse-lite';
+// import * as db from 'caniuse-lite';
 
-import { calc } from './parsers/helpers';
+// import { calc } from './parsers/helpers';
 
 // class Supports {
 

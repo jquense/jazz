@@ -1,6 +1,7 @@
 import Parser from '.';
-import interleave from '../utils/interleave';
 import { MathFunctionValue } from '../Values';
+import interleave from '../utils/interleave';
+
 export function calc(
   strings: TemplateStringsArray,
   ...values: MathFunctionValue[]

@@ -19,6 +19,7 @@ export function length(list: Value, item: Value) {
   return list.assertType('list').includes(item);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-shadow
 export function nth(list: Value, index: Value) {
   return list.assertType('list')[index.assertType('numeric').value];
 }

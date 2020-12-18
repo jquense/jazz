@@ -230,7 +230,7 @@ describe('Compiler', () => {
     `);
   });
 
-  it.only('should generate per file ICSS', async () => {
+  it('should generate per file ICSS', async () => {
     const processor = get();
 
     await processor.add(

@@ -2,6 +2,7 @@ lib/
 es/
 
 .yarn/
+processor/src/parsers/parser.ts
 # Logs
 logs
 *.log

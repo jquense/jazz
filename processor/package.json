@@ -9,9 +9,10 @@
   "author": "4Catalyzer",
   "license": "MIT",
   "scripts": {
-    "build": "4c build src",
+    "build": "yarn parser && 4c build src",
     "format": "4c format src './*'",
-    "lint": "4c lint src './*'",
+    "lint": "yarn parser && 4c lint src './*'",
+    "parser": "node parsers/build.js",
     "publish-local": "yalc publish --push",
     "prepublishOnly": "yarn run build",
     "release": "4c release",

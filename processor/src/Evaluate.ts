@@ -1,6 +1,5 @@
 import escape from 'escape-string-regexp';
 import { uniqBy } from 'lodash';
-import postcss from 'postcss';
 
 import * as Ast from './Ast';
 import EvaluateExpression from './Expression';

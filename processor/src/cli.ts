@@ -3,7 +3,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 
-import type { Register } from 'ts-node';
 import yargs from 'yargs';
 
 import Processor from './Processor';

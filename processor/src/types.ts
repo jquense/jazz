@@ -1,7 +1,6 @@
 import type { DepGraph } from 'dependency-graph';
-import type { Plugin, ProcessOptions, Result, Rule } from 'postcss';
+import type { ProcessOptions, Result, Rule } from 'postcss';
 
-import type { Root } from './Ast';
 import type ModuleMembers from './ModuleMembers';
 // eslint-disable-next-line import/no-duplicates
 import type Scope from './Scope';
