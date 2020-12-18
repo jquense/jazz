@@ -55,6 +55,7 @@ function getResolve(ctx: webpack.loader.LoaderContext): AsyncResolver {
       extensions: [
         '.global.jazz',
         '.module.jazz',
+        '.icss.jazz',
         '.jazz',
         '.css',
         '.js',

@@ -1,47 +1,15 @@
 {
   "fileTypes": ["svelte"],
-  "injectionSelector": "L:source.svelte",
+  "injectionSelector": "L:source.svelte meta.lang.jazz.svelte",
   "patterns": [
     {
-      "begin": "(<)(style)\\b(?=[^>]*(?:type=('text/jazz'|\"text/jazz\")|lang=(jazz|'jazz'|\"jazz\")))(?![^/>]*/>\\s*$)",
-      "beginCaptures": {
-        "1": {
-          "name": "punctuation.definition.tag.begin.html"
-        },
-        "2": {
-          "name": "entity.name.tag.style.html"
-        }
-      },
-      "end": "(</)(style)(>)",
-      "endCaptures": {
-        "1": {
-          "name": "punctuation.definition.tag.begin.html"
-        },
-        "2": {
-          "name": "entity.name.tag.style.html"
-        },
-        "3": {
-          "name": "punctuation.definition.tag.end.html"
-        }
-      },
+      "begin": "(?<=>)(?!</)",
+      "end": "(?=</)",
+      "name": "meta.embedded.block.svelte",
+      "contentName": "source.css.jazz",
       "patterns": [
         {
-          "include": "source.svelte#tag-stuff"
-        },
-        {
-          "contentName": "source.css.jazz",
-          "begin": "(>)",
-          "beginCaptures": {
-            "1": {
-              "name": "punctuation.definition.tag.end.html"
-            }
-          },
-          "end": "(?=</style>)",
-          "patterns": [
-            {
-              "include": "source.css.jazz"
-            }
-          ]
+          "include": "source.css.jazz"
         }
       ]
     }

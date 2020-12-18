@@ -393,7 +393,7 @@ class Processor {
       if (!relpath.startsWith('.')) relpath = `./${relpath}`;
       if (grouped[dep]) {
         icssImports += `@icss-import '${relpath}' {\n`;
-        icssImports += grouped[dep].join('\n');
+        icssImports += grouped[dep].join(';\n');
         icssImports += '\n}\n';
       } else {
         icssImports += `@icss-import '${relpath}';\n`;

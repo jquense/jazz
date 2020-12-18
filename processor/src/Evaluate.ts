@@ -182,17 +182,17 @@ export default class Evaluator
       });
     });
 
-    if (this.outputIcss) {
-      const entries = Object.entries(exports.toJSON());
-      if (entries.length) {
-        const exportNode: any = postcss.rule({
-          selector: ':export',
-          nodes: entries.map(([prop, value]) => postcss.decl({ prop, value })),
-        });
-        this.icss.export.add(exportNode);
-        // node.append(exportNode);
-      }
-    }
+    // if (this.outputIcss) {
+    //   const entries = Object.entries(exports.toJSON());
+    //   if (entries.length) {
+    //     const exportNode: any = postcss.rule({
+    //       selector: ':export',
+    //       nodes: entries.map(([prop, value]) => postcss.decl({ prop, value })),
+    //     });
+    //     this.icss.export.add(exportNode);
+    //     // node.append(exportNode);
+    //   }
+    // }
 
     return { exports, icss: this.icss! };
   }

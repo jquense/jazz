@@ -230,7 +230,7 @@ describe('Compiler', () => {
     `);
   });
 
-  it('should generate per file ICSS', async () => {
+  it.only('should generate per file ICSS', async () => {
     const processor = get();
 
     await processor.add(
@@ -242,6 +242,8 @@ describe('Compiler', () => {
         $baz: blue;
 
         .foo {
+          @compose sm:bg-color from global;
+
           color: $red;
         }
 
@@ -255,10 +257,11 @@ describe('Compiler', () => {
       @icss-export {
       	$baz: blue;
       	$red: red;
-      	foo: m_foo
+      	foo: m_foo sm\\\\:bg-color;
       }
 
       .m_foo {
+
         color: red;
       }"
     `);

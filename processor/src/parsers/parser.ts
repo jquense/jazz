@@ -605,7 +605,7 @@ function peg$parse(input: string, options?: IParseOptions) {
   const peg$c260 = peg$classExpectation(["_", ["a", "z"], ["0", "9"], "-", ":"], false, true);
   const peg$c261 = peg$otherExpectation("class name");
   const peg$c262 = function(prefix: any, start: any, chars: any): any {
-        return init(Ast.Ident, prefix + start + chars.join(""));
+        return init(Ast.Ident, (prefix + start + chars.join("")).replace(/(?<!\\):/, '\\:'));
     };
   const peg$c263 = function(head: any, tail: any): any {
       return [head].concat(tail)
@@ -10227,7 +10227,7 @@ function peg$parse(input: string, options?: IParseOptions) {
     });
 
     s0 = peg$currPos;
-    s1 = peg$parseIdent();
+    s1 = peg$parseClassIdent();
     if (s1 !== peg$FAILED) {
       s2 = [];
       s3 = peg$currPos;

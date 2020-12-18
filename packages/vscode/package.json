@@ -1,15 +1,25 @@
 {
   "name": "jazz-syntax",
-  "displayName": "Jazz Syntax Theme",
+  "displayName": "Jazz CSS Syntax Theme",
   "description": "Syntax highlighting for Jazz CSS",
-  "publisher": "monasticpanic",
+  "publisher": "monastic-panic",
   "version": "0.0.2",
   "engines": {
     "vscode": "^1.47.0"
   },
+  "icon": "jazz-circle.png",
   "categories": [
     "Programming Languages"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jquense/jazz.git",
+    "directory": "packages/vscode"
+  },
+  "galleryBanner": {
+    "color": "#FFF",
+    "theme": "dark"
+  },
   "contributes": {
     "languages": [
       {
