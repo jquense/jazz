@@ -1,4 +1,4 @@
-import { Plugin } from 'postcss';
+import { Message, Plugin } from 'postcss';
 
 import type {
   ComposeAtRule,
@@ -45,79 +45,88 @@ type Rules =
   | ExportAtRule
   | IcssImportAtRule;
 
+export function walkTree(
+  css: Root,
+  messages: Message[],
+  { resolve, from, modules }: BeforeModularCSSOpts,
+) {
+  const { type } = modules.get(from)!;
+
+  const results = [] as Promise<void>[];
+
+  const pushMessage = (source: string | null | undefined, rule: Rules) => {
+    if (!source) {
+      return;
+    }
+
+    const dependency = resolve(source);
+
+    if (!dependency) {
+      throw rule.error(`Unable to locate "${source}" from "${from}"`, {
+        word: source,
+      });
+    }
+    if (isPromise(dependency)) {
+      results.push(
+        dependency.then((resolved) => {
+          if (!resolved) {
+            throw rule.error(`Unable to locate "${source}" from "${from}"`, {
+              word: source,
+            });
+          }
+
+          messages.push({
+            type: rule.name,
+            plugin,
+            request: source,
+            dependency: resolved,
+          });
+        }),
+      );
+    } else {
+      messages.push({
+        type: rule.name,
+        plugin,
+        request: source,
+        dependency,
+      });
+    }
+  };
+
+  css.walkAtRules((rule) => {
+    if (type === 'css') {
+      if (notAllowed.includes(rule.name))
+        rule.error(`At rule ${rule.name} is not allowed in css files`);
+
+      if (isIcssImportRule(rule)) {
+        pushMessage(requestFromIcssImportRule(rule as any), rule);
+        return;
+      }
+    }
+
+    if (
+      isImportRule(rule) ||
+      isExportRule(rule) ||
+      isComposeRule(rule) ||
+      (isUseRule(rule) && !isBuiltin(rule.request))
+    ) {
+      pushMessage(rule.request, rule);
+    }
+  });
+
+  if (results.length) {
+    return Promise.all(results) as any;
+  }
+}
+
 const dependencyGraphPlugin: Plugin = {
   postcssPlugin: 'postcss-jazz-dependency-graph',
   Once(root: any, { result }) {
-    const css: Root = root;
-    const { resolve, from, modules } = result.opts as BeforeModularCSSOpts;
-
-    const { type } = modules.get(from)!;
-
-    const results = [] as Promise<void>[];
-
-    const pushMessage = (source: string | null | undefined, rule: Rules) => {
-      if (!source) {
-        return;
-      }
-
-      const dependency = resolve(source);
-
-      if (!dependency) {
-        throw rule.error(`Unable to locate "${source}" from "${from}"`, {
-          word: source,
-        });
-      }
-      if (isPromise(dependency)) {
-        results.push(
-          dependency.then((resolved) => {
-            if (!result) {
-              throw rule.error(`Unable to locate "${source}" from "${from}"`, {
-                word: source,
-              });
-            }
-
-            result.messages.push({
-              type: rule.name,
-              plugin,
-              request: source,
-              dependency: resolved,
-            });
-          }),
-        );
-      } else {
-        result.messages.push({
-          type: rule.name,
-          plugin,
-          request: source,
-          dependency,
-        });
-      }
-    };
-
-    css.walkAtRules((rule) => {
-      if (type === 'css') {
-        if (notAllowed.includes(rule.name))
-          rule.error(`At rule ${rule.name} is not allowed in css files`);
-
-        if (isIcssImportRule(rule)) {
-          pushMessage(requestFromIcssImportRule(rule as any), rule);
-          return;
-        }
-      }
-
-      if (
-        isImportRule(rule) ||
-        isExportRule(rule) ||
-        isComposeRule(rule) ||
-        (isUseRule(rule) && !isBuiltin(rule.request))
-      ) {
-        pushMessage(rule.request, rule);
-      }
-    });
-
-    if (results.length) {
-      return Promise.all(results) as any;
-    }
+    return walkTree(
+      root,
+      result.messages,
+      result.opts as BeforeModularCSSOpts,
+    );
   },
 };
 
