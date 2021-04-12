@@ -64,7 +64,7 @@ export type Options = {
   filename?: string;
   initialScope?: Scope;
   parser?: Parser;
-  outputIcss?: boolean;
+  // outputIcss?: boolean;
   isCss?: boolean;
   loadModule: (
     request: string,
@@ -124,14 +124,14 @@ export default class Evaluator
     parser,
     identifierScope,
     namer,
-    outputIcss,
+    // outputIcss,
     loadModule,
     isCss,
   }: Options) {
     super({ scope: getScope(initialScope) });
 
     this.namer = namer;
-    this.outputIcss = outputIcss;
+    // this.outputIcss = outputIcss;
     this.identifierScope = identifierScope;
     this.loadModule = loadModule;
     this.loadModuleMembers = (request) => loadModule(request).module?.exports;
@@ -333,14 +333,14 @@ export default class Evaluator
       }
     }
 
-    if (this.outputIcss && module.type !== 'jazzscript') {
-      // const importNode: any = postcss.rule({
-      //   selector: `:import("${request}")`,
-      //   nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
-      // });
-      // this.icss!.import.add(importNode);
-      // node.before(importNode);
-    }
+    // if (this.outputIcss && module.type !== 'jazzscript') {
+    //   // const importNode: any = postcss.rule({
+    //   //   selector: `:import("${request}")`,
+    //   //   nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
+    //   // });
+    //   // this.icss!.import.add(importNode);
+    //   // node.before(importNode);
+    // }
 
     node.remove();
   }

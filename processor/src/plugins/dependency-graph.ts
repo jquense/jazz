@@ -48,10 +48,8 @@ type Rules =
 export function walkTree(
   css: Root,
   messages: Message[],
-  { resolve, from, modules }: BeforeModularCSSOpts,
+  { resolve, from, type }: BeforeModularCSSOpts,
 ) {
-  const { type } = modules.get(from)!;
-
   const results = [] as Promise<void>[];
 
   const pushMessage = (source: string | null | undefined, rule: Rules) => {
