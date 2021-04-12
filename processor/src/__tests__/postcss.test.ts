@@ -1,5 +1,6 @@
 import { Volume } from 'memfs';
 import postcss from 'postcss';
+import tailwind from 'tailwindcss';
 
 import { createMemoryResolver, css, runFixture } from '../../test/helpers';
 import postcssParser from '../parsers/jazz-postcss';
@@ -30,6 +31,7 @@ describe('postcss-plugin', () => {
 
     return (from: string, code: string) =>
       postcss([
+        ...(options.pre || []),
         Plugin({
           ...options,
           // loadFile: (file: string) => fs.readFileSync(file).toString(),
@@ -174,6 +176,40 @@ describe('postcss-plugin', () => {
     expect(details.css).toMatchCss(`
       .m_foo {
         color: red;
+      }
+    `);
+  });
+
+  it('should work with plugins', async () => {
+    const processor = get({ pre: [tailwind()] });
+
+    const details = await processor(
+      '/entry.jazz',
+      `
+        @use 'string' as string;
+        @use './colors.jazz' import $red;
+
+        $name: child;
+
+        .foo {
+          color: theme('colors.red.100');
+          background-color: url($red/'hi');
+
+          & > .#{$name} {
+            color: $red
+          }
+        }
+      `,
+    );
+
+    expect(details.css).toMatchCss(`
+      .m_foo {
+        color: red;
+        background-color: url(red/'hi');
+      }
+
+      .m_foo > .m_child {
+        color: red
       }
     `);
   });

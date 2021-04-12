@@ -7,7 +7,7 @@ const processed = Symbol('jazz');
 
 const plugin = (opts = {}): Plugin => ({
   postcssPlugin: 'jazz',
-  Once: async (root, { result }) => {
+  OnceExit: async (root, { result }) => {
     // @ts-ignore
     if (root[processed]) {
       return;

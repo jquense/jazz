@@ -76,15 +76,18 @@ export class JazzPostcssParser extends CssParser {
       offset: added.source?.start,
     });
 
-    input = rawOrProp(added, 'value');
     const offset = { line, column };
     // this logic is a bit weird but matches Sass, which doesn't evaluate the identifier
     // before deciding how to parse the value
-    if (identIsLikelyCssVar(added.ident)) {
-      added.valueAst = this.parser.anyValue(input, { offset });
-    } else {
-      added.valueAst = this.parser.value(input, { offset });
-    }
+    Object.defineProperty(added, 'valueAst', {
+      get() {
+        input = rawOrProp(added, 'value');
+        if (identIsLikelyCssVar(added.ident!)) {
+          return this.parser.anyValue(input, { offset });
+        }
+        return this.parser.value(input, { offset });
+      },
+    });
   }
 
   atrule(tokens: any) {

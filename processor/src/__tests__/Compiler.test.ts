@@ -10,7 +10,7 @@ function trimLineEnd(str: string) {
     .join('\n');
 }
 
-describe('Compiler', () => {
+xdescribe('Compiler', () => {
   function get(options: Partial<Options> = {}) {
     const fs = Volume.fromJSON({
       '/colors.jazz': `
