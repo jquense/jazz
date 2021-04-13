@@ -194,6 +194,7 @@ describe('postcss-plugin', () => {
         .foo {
           color: theme('colors.red.100');
           background-color: url($red/'hi');
+          width: calc(theme('spacing.2') + 2rem);
 
           & > .#{$name} {
             color: $red
@@ -204,10 +205,10 @@ describe('postcss-plugin', () => {
 
     expect(details.css).toMatchCss(`
       .m_foo {
-        color: red;
+        color: #fee2e2;
         background-color: url(red/'hi');
+        width: 2.5rem;
       }
-
       .m_foo > .m_child {
         color: red
       }

@@ -9,6 +9,7 @@ import * as UserDefinedCallable from './UserDefinedCallable';
 import { Value } from './Values';
 import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
+import { parseNode } from './parsers/jazz-postcss';
 import type { ICSSNodes, Module } from './types';
 import {
   isComposeRule,
@@ -75,6 +76,16 @@ export type Options = {
 
 type ImportedModule = { module: Module | undefined; resolved: string | false };
 
+function isStale(node: Ast.ChildNode) {
+  if (node.type === 'rule') return node.selector !== node.raws.jazz.selector;
+  if (node.type === 'atrule') return node.params !== node.raws.jazz.params;
+  if (node.type === 'decl')
+    return (
+      node.prop !== node.raws.jazz.prop || node.value !== node.raws.jazz.value
+    );
+  return false;
+}
+
 export default class Evaluator
   extends EvaluateExpression
   implements
@@ -139,6 +150,13 @@ export default class Evaluator
     this.isCss = isCss || false;
   }
 
+  private check<T extends Ast.ChildNode>(node: T): T {
+    if (isStale(node)) {
+      parseNode(node, this.parser);
+    }
+    return node;
+  }
+
   visitChildNode(node: Ast.ChildNode) {
     switch (node.type) {
       case 'atrule':
@@ -194,6 +212,8 @@ export default class Evaluator
     if (this.toHoist.has(node)) {
       return undefined;
     }
+
+    this.check(node);
 
     if (isMetaRule(node)) return this.visitMetaRule(node);
     if (isUseRule(node)) return this.visitUseRule(node);
@@ -631,7 +651,7 @@ export default class Evaluator
     }
 
     if (node.selectorAst) {
-      node.selector = node.selectorAst.accept(this).toString();
+      node.selector = node.selectorAst!.accept(this).toString();
     }
 
     if (this.inKeyframes) {
@@ -682,7 +702,7 @@ export default class Evaluator
   }
 
   visitDeclaration(node: Ast.Declaration): void {
-    const value = node.valueAst?.accept(this);
+    const value = this.check(node).valueAst?.accept(this);
 
     if (node.ident?.type === 'variable') {
       const { name } = node.ident;

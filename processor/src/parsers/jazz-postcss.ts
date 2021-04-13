@@ -35,6 +35,117 @@ const rawOrProp = (node: any, prop: string): string => {
   return node.raws[prop]?.raw ?? node[prop];
 };
 
+export const parseNode = (
+  node: Ast.ChildNode,
+  parser: Parser,
+  offset?: any,
+) => {
+  const loc = { offset: offset || node.source?.start };
+
+  if (node.type === 'rule') {
+    const input = rawOrProp(node, 'selector');
+
+    node.raws.jazz = { selector: input };
+
+    node.selectorAst = parser.anyValue(input, loc);
+  } else if (node.type === 'decl') {
+    const prop = rawOrProp(node, 'prop');
+
+    node.ident = parser.prop(prop, {
+      offset: node.source?.start,
+    });
+
+    const value = rawOrProp(node, 'value');
+
+    node.raws.jazz = { prop, value };
+
+    if (identIsLikelyCssVar(node.ident)) {
+      node.valueAst = parser.anyValue(value, loc);
+    } else {
+      node.valueAst = parser.value(value, loc);
+    }
+  } else if (node.type === 'atrule') {
+    const { name } = node;
+    const params = rawOrProp(node, 'params');
+
+    node.raws.jazz = { params };
+
+    switch (name) {
+      case 'if':
+      case 'else if':
+        (node as Ast.IfAtRule).test = parser.expression(params, loc);
+        break;
+      case 'each': {
+        const { variables, expr } = parser.eachCondition(params, loc);
+
+        (node as Ast.EachAtRule).variables = variables;
+        (node as Ast.EachAtRule).expression = expr;
+        break;
+      }
+      case 'import': {
+        (node as Ast.ImportAtRule).request = parser.import(params, loc);
+        break;
+      }
+      case 'use': {
+        const { request, specifiers } = parser.use(params, loc);
+
+        (node as Ast.UseAtRule).request = request;
+        (node as Ast.UseAtRule).specifiers = specifiers;
+        break;
+      }
+      case 'export': {
+        const exportNode = parser.export(params, loc);
+
+        if (exportNode.type === 'export-named-declaration') {
+          (node as Ast.ExportAtRule).declaration = exportNode;
+        } else {
+          (node as Ast.ExportAtRule).request = exportNode.request;
+          (node as Ast.ExportAtRule).specifiers = exportNode.specifiers;
+        }
+        break;
+      }
+      case 'mixin': {
+        const callable = parser.callable(params, loc);
+        (node as Ast.MixinAtRule).mixin = callable.name;
+        (node as Ast.MixinAtRule).parameterList = callable.params;
+        break;
+      }
+      case 'function': {
+        const callable = parser.callable(params, loc);
+        (node as Ast.FunctionAtRule).functionName = callable.name;
+        (node as Ast.FunctionAtRule).parameterList = callable.params;
+        break;
+      }
+      case 'return': {
+        (node as Ast.ReturnAtRule).returnValue = parser.expression(
+          params,
+          loc,
+        );
+        break;
+      }
+      case 'include': {
+        const expr = parser.callExpressions(params, true, loc);
+        (node as Ast.IncludeAtRule).callExpressions = expr;
+        break;
+      }
+      case 'compose': {
+        const composition = parser.composeList(params, loc);
+        (node as Ast.ComposeAtRule).isGlobal = composition.isGlobal;
+        (node as Ast.ComposeAtRule).request = composition.from;
+        (node as Ast.ComposeAtRule).classList = composition.classList;
+        break;
+      }
+      case 'debug':
+      case 'warn':
+      case 'error':
+        (node as Ast.MetaAtRule).expression = parser.expression(params, loc);
+        break;
+      default:
+        (node as Ast.CssAtRule).paramValue = parser.anyValue(params, loc);
+    }
+  }
+};
+
 export class JazzPostcssParser extends CssParser {
   private parser: Parser;
 
@@ -48,13 +159,7 @@ export class JazzPostcssParser extends CssParser {
     super.rule(tokens);
 
     if (this.current.type === 'rule') {
-      const input = rawOrProp(this.current, 'selector');
-      ((this.current as any) as Ast.Rule).selectorAst = this.parser.anyValue(
-        input,
-        {
-          offset: { line, column },
-        },
-      );
+      parseNode(this.current as any, this.parser, { line, column });
     }
   }
 
@@ -70,24 +175,7 @@ export class JazzPostcssParser extends CssParser {
 
     const added = (current.last as any) as Ast.Declaration;
 
-    let input = rawOrProp(added, 'prop');
-
-    added.ident = this.parser.prop(input, {
-      offset: added.source?.start,
-    });
-
-    const offset = { line, column };
-    // this logic is a bit weird but matches Sass, which doesn't evaluate the identifier
-    // before deciding how to parse the value
-    Object.defineProperty(added, 'valueAst', {
-      get() {
-        input = rawOrProp(added, 'value');
-        if (identIsLikelyCssVar(added.ident!)) {
-          return this.parser.anyValue(input, { offset });
-        }
-        return this.parser.value(input, { offset });
-      },
-    });
+    parseNode(added, this.parser, { line, column });
   }
 
   atrule(tokens: any) {
@@ -110,94 +198,7 @@ export class JazzPostcssParser extends CssParser {
           n.type === 'atrule' && n.name === 'return',
       )!;
     }
-
-    const { name } = current;
-    const params = rawOrProp(current, 'params');
-
-    const loc = { offset: current.source?.start };
-
-    switch (name) {
-      case 'if':
-      case 'else if':
-        (current as Ast.IfAtRule).test = this.parser.expression(params, loc);
-        break;
-      case 'each': {
-        const { variables, expr } = this.parser.eachCondition(params, loc);
-
-        (current as Ast.EachAtRule).variables = variables;
-        (current as Ast.EachAtRule).expression = expr;
-        break;
-      }
-      case 'import': {
-        (current as Ast.ImportAtRule).request = this.parser.import(
-          params,
-          loc,
-        );
-        break;
-      }
-      case 'use': {
-        const { request, specifiers } = this.parser.use(params, loc);
-
-        (current as Ast.UseAtRule).request = request;
-        (current as Ast.UseAtRule).specifiers = specifiers;
-        break;
-      }
-      case 'export': {
-        const exportNode = this.parser.export(params, loc);
-
-        if (exportNode.type === 'export-named-declaration') {
-          (current as Ast.ExportAtRule).declaration = exportNode;
-        } else {
-          (current as Ast.ExportAtRule).request = exportNode.request;
-          (current as Ast.ExportAtRule).specifiers = exportNode.specifiers;
-        }
-        break;
-      }
-      case 'mixin': {
-        const callable = this.parser.callable(params, loc);
-        (current as Ast.MixinAtRule).mixin = callable.name;
-        (current as Ast.MixinAtRule).parameterList = callable.params;
-        break;
-      }
-      case 'function': {
-        const callable = this.parser.callable(params, loc);
-        (current as Ast.FunctionAtRule).functionName = callable.name;
-        (current as Ast.FunctionAtRule).parameterList = callable.params;
-        break;
-      }
-      case 'return': {
-        (current as Ast.ReturnAtRule).returnValue = this.parser.expression(
-          params,
-          loc,
-        );
-        break;
-      }
-      case 'include': {
-        const expr = this.parser.callExpressions(params, true, loc);
-        (current as Ast.IncludeAtRule).callExpressions = expr;
-        break;
-      }
-      case 'compose': {
-        const composition = this.parser.composeList(params, loc);
-        (current as Ast.ComposeAtRule).isGlobal = composition.isGlobal;
-        (current as Ast.ComposeAtRule).request = composition.from;
-        (current as Ast.ComposeAtRule).classList = composition.classList;
-        break;
-      }
-      case 'debug':
-      case 'warn':
-      case 'error':
-        (current as Ast.MetaAtRule).expression = this.parser.expression(
-          params,
-          loc,
-        );
-        break;
-      default:
-        (current as Ast.CssAtRule).paramValue = this.parser.anyValue(
-          params,
-          loc,
-        );
-    }
+    parseNode(current, this.parser);
   }
 
   ifElseRule(tokens: Token) {

@@ -605,7 +605,8 @@ function peg$parse(input: string, options?: IParseOptions) {
   const peg$c260 = peg$classExpectation(["_", ["a", "z"], ["0", "9"], "-", ":"], false, true);
   const peg$c261 = peg$otherExpectation("class name");
   const peg$c262 = function(prefix: any, start: any, chars: any): any {
-        return init(Ast.Ident, (prefix + start + chars.join("")).replace(/(?<!\\):/, '\\:'));
+      // .replace(/(?<!\\):/, '\\:')
+      return init(Ast.Ident, (prefix + start + chars.join("")));
     };
   const peg$c263 = function(head: any, tail: any): any {
       return [head].concat(tail)
