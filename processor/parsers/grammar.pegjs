@@ -689,7 +689,8 @@ class_char
 // for use of use in tailwind. Safe enough because this is in the context of an at-rule
 ClassIdent "class name"
   =  prefix:$"-"? start:nmstart chars:class_char* {
-      return init(Ast.Ident, (prefix + start + chars.join("")).replace(/(?<!\\):/, '\\:'));
+    // .replace(/(?<!\\):/, '\\:')
+    return init(Ast.Ident, (prefix + start + chars.join("")));
   }
 
 class_list

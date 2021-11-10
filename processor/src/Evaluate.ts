@@ -9,6 +9,7 @@ import * as UserDefinedCallable from './UserDefinedCallable';
 import { Value } from './Values';
 import { createRootScope, isBuiltin, loadBuiltIn } from './modules';
 import Parser from './parsers';
+import { parseNode } from './parsers/jazz-postcss';
 import type { ICSSNodes, Module } from './types';
 import {
   isComposeRule,
@@ -64,7 +65,7 @@ export type Options = {
   filename?: string;
   initialScope?: Scope;
   parser?: Parser;
-  outputIcss?: boolean;
+  // outputIcss?: boolean;
   isCss?: boolean;
   loadModule: (
     request: string,
@@ -74,6 +75,16 @@ export type Options = {
 };
 
 type ImportedModule = { module: Module | undefined; resolved: string | false };
+
+function isStale(node: Ast.ChildNode) {
+  if (node.type === 'rule') return node.selector !== node.raws.jazz.selector;
+  if (node.type === 'atrule') return node.params !== node.raws.jazz.params;
+  if (node.type === 'decl')
+    return (
+      node.prop !== node.raws.jazz.prop || node.value !== node.raws.jazz.value
+    );
+  return false;
+}
 
 export default class Evaluator
   extends EvaluateExpression
@@ -124,19 +135,26 @@ export default class Evaluator
     parser,
     identifierScope,
     namer,
-    outputIcss,
+    // outputIcss,
     loadModule,
     isCss,
   }: Options) {
     super({ scope: getScope(initialScope) });
 
     this.namer = namer;
-    this.outputIcss = outputIcss;
+    // this.outputIcss = outputIcss;
     this.identifierScope = identifierScope;
     this.loadModule = loadModule;
     this.loadModuleMembers = (request) => loadModule(request).module?.exports;
     this.parser = parser || new Parser();
     this.isCss = isCss || false;
+  }
+
+  private check<T extends Ast.ChildNode>(node: T): T {
+    if (isStale(node)) {
+      parseNode(node, this.parser);
+    }
+    return node;
   }
 
   visitChildNode(node: Ast.ChildNode) {
@@ -181,18 +199,6 @@ export default class Evaluator
       });
     });
 
-    // if (this.outputIcss) {
-    //   const entries = Object.entries(exports.toJSON());
-    //   if (entries.length) {
-    //     const exportNode: any = postcss.rule({
-    //       selector: ':export',
-    //       nodes: entries.map(([prop, value]) => postcss.decl({ prop, value })),
-    //     });
-    //     this.icss.export.add(exportNode);
-    //     // node.append(exportNode);
-    //   }
-    // }
-
     return { exports, icss: this.icss! };
   }
 
@@ -206,6 +212,8 @@ export default class Evaluator
     if (this.toHoist.has(node)) {
       return undefined;
     }
+
+    this.check(node);
 
     if (isMetaRule(node)) return this.visitMetaRule(node);
     if (isUseRule(node)) return this.visitUseRule(node);
@@ -333,14 +341,14 @@ export default class Evaluator
       }
     }
 
-    if (this.outputIcss && module.type !== 'jazzscript') {
-      // const importNode: any = postcss.rule({
-      //   selector: `:import("${request}")`,
-      //   nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
-      // });
-      // this.icss!.import.add(importNode);
-      // node.before(importNode);
-    }
+    // if (this.outputIcss && module.type !== 'jazzscript') {
+    //   // const importNode: any = postcss.rule({
+    //   //   selector: `:import("${request}")`,
+    //   //   nodes: [postcss.decl({ prop: DUMMY_LOCAL_NAME, value: 'a' })],
+    //   // });
+    //   // this.icss!.import.add(importNode);
+    //   // node.before(importNode);
+    // }
 
     node.remove();
   }
@@ -643,7 +651,7 @@ export default class Evaluator
     }
 
     if (node.selectorAst) {
-      node.selector = node.selectorAst.accept(this).toString();
+      node.selector = node.selectorAst!.accept(this).toString();
     }
 
     if (this.inKeyframes) {
@@ -694,7 +702,7 @@ export default class Evaluator
   }
 
   visitDeclaration(node: Ast.Declaration): void {
-    const value = node.valueAst?.accept(this);
+    const value = this.check(node).valueAst?.accept(this);
 
     if (node.ident?.type === 'variable') {
       const { name } = node.ident;

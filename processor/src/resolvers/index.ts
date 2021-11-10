@@ -28,20 +28,22 @@ async function resolveAsyncResolvers(
 
 function mergeResolvers(
   resolvers: Array<Resolver | AsyncResolver>,
+  cwd: string,
 ): AsyncResolver;
-function mergeResolvers(resolvers: Resolver[]): Resolver;
+function mergeResolvers(resolvers: Resolver[], cwd: string): Resolver;
 function mergeResolvers(
   resolvers: Array<Resolver | AsyncResolver>,
+  cwd: string,
 ): Resolver | AsyncResolver {
   const allResolvers = [...resolvers, nodeResolver];
 
-  return ((url: string, opts: ResolverOptions) => {
+  return ((url: string, { from }: { from: string }) => {
     for (const [idx, resolver] of allResolvers.entries()) {
-      const result = resolver(url, opts);
+      const result = resolver(url, { from, cwd });
       if (isPromise(result)) {
         return resolveAsyncResolvers(
           url,
-          opts,
+          { from, cwd },
           result,
           allResolvers.slice(idx),
         );

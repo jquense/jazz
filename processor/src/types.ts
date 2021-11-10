@@ -1,6 +1,6 @@
-import type { DepGraph } from 'dependency-graph';
 import type { ProcessOptions, Result, Rule } from 'postcss';
 
+import { Root } from './Ast';
 import type ModuleMembers from './ModuleMembers';
 // eslint-disable-next-line import/no-duplicates
 import type Scope from './Scope';
@@ -36,7 +36,7 @@ export interface File {
   module: Module;
   valid: boolean;
   result: Result;
-  toICSS(): Result;
+  // toICSS(): Result;
   values: Record<string, string>;
   selectors: Record<string, string[]>;
   readonly exports: Record<string, any>;
@@ -54,7 +54,7 @@ export type PostcssPluginResult = Result & { opts: ModularCSSOpts };
 
 export interface ModularCSSOpts {
   from: string;
-  moduleGraph: DepGraph<string> & { outgoingEdges: Record<string, string[]> };
+  // moduleGraph: DepGraph<string> & { outgoingEdges: Record<string, string[]> };
   resolve: (url: string) => string | false;
   source?: boolean;
   trace?: boolean;
@@ -64,7 +64,9 @@ export interface ModularCSSOpts {
   modules: Map<string, Module>;
 }
 
-export interface BeforeModularCSSOpts extends Omit<ModularCSSOpts, 'resolve'> {
+export interface BeforeModularCSSOpts {
+  from: string;
+  type: ModuleType;
   resolve: (
     url: string,
   ) => ResolvedResource | false | Promise<ResolvedResource | false>;
@@ -80,7 +82,7 @@ export type ResolverOptions = {
   from: string;
 };
 
-export type ResolvedResource = { file: string; content?: string };
+export type ResolvedResource = { file: string; content?: string | Root };
 
 export type Resolver = (
   url: string,

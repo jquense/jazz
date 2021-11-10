@@ -1,3 +1,5 @@
+import cssesc from 'cssesc';
+
 import * as Ast from './Ast';
 import type { Callable } from './Callable';
 import type Scope from './Scope';
@@ -87,8 +89,10 @@ export const unescape = (str: string) => str.replace(/\\:/g, ':');
 
 export function serializeClassMember(member: ClassReferenceMember): string {
   return [
-    String(member.selector.name),
-    ...member.composes.map((c) => String(c.name)),
+    cssesc(String(member.selector.name), { isIdentifier: true }),
+    ...member.composes.map((c) =>
+      cssesc(String(c.name), { isIdentifier: true }),
+    ),
   ].join(' ');
 }
 

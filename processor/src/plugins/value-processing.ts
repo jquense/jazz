@@ -27,7 +27,7 @@ const valueProcessingPlugin: Plugin = {
       from,
       resolve,
       identifierScope,
-      icssCompatible,
+      // icssCompatible,
       namer = defaultNamer,
     } = result.opts as ModularCSSOpts;
 
@@ -36,7 +36,7 @@ const valueProcessingPlugin: Plugin = {
     const parser = Parser.get(css, result.opts as ModularCSSOpts);
 
     const { exports, icss } = Evaluator.evaluate(css, {
-      outputIcss: icssCompatible,
+      // outputIcss: icssCompatible,
       isCss: module!.type === 'css',
       namer: (str: string) => namer(from!, str),
       loadModule: (request: string) => {
