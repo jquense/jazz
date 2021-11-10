@@ -36,7 +36,7 @@ export interface File {
   module: Module;
   valid: boolean;
   result: Result;
-  toICSS(): Result;
+  // toICSS(): Result;
   values: Record<string, string>;
   selectors: Record<string, string[]>;
   readonly exports: Record<string, any>;

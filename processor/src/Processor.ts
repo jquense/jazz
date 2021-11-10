@@ -3,135 +3,21 @@
 
 import path from 'path';
 
-import { DepGraph as Graph } from 'dependency-graph';
-import postcss, {
-  CssSyntaxError,
-  Plugin,
-  ProcessOptions,
-  Result,
-} from 'postcss';
-// @ts-ignore
-import slug from 'unique-slug';
+import type { ProcessOptions } from 'postcss';
 
-import { JazzFile, ProcessingFile, ScriptFile } from './File';
-import ModuleMembers, { Member } from './ModuleMembers';
+import Graph, { FileDependency, Options, relative } from './Graph';
+import type { Member } from './ModuleMembers';
 import postcssParser from './parsers/jazz-postcss';
-import mergeResolvers from './resolvers';
-import type {
-  AsyncResolver,
-  File,
-  Module,
-  ModuleType,
-  ResolvedResource,
-  Resolver,
-} from './types';
-import { isStyleFile } from './utils/Scoping';
-import graphTiers from './utils/graph-tiers';
-
-const sepRegex = /\\/g;
-
-export type {
-  Module,
-  File,
-  ProcessingFile,
-  Resolver,
-  AsyncResolver,
-  CssSyntaxError,
-};
-
-const nullPlugin: Plugin = {
-  postcssPlugin: 'null-plugin',
-  Once() {},
-};
-// Get a relative version of an absolute path w/ cross-platform/URL-friendly
-// directory separators
-const relative = (cwd: string, file: string) =>
-  path.relative(cwd, file).replace(sepRegex, '/');
-
-const normalizePath = (cwd: string, file: string) => {
-  return path.normalize(!path.isAbsolute(file) ? path.join(cwd, file) : file);
-};
+import type { File } from './types';
 
 const memberId = (member: Member) => {
   if (member.type === 'class') return member.identifier;
   if (member.type === 'variable') return `$${member.identifier}`;
 };
 
-export type Options = {
-  cwd: string;
-  map: boolean;
-  dupewarn: boolean;
-  resolvers: Resolver[] | Array<Resolver | AsyncResolver>;
-  icssCompatible: boolean;
-  postcssPlugins?: any[];
-  namer: (file: string, selector: string) => string;
-  verbose: boolean;
-};
+export type { Options, FileDependency };
 
-const DEFAULTS = {
-  cwd: process.cwd(),
-  map: false,
-
-  dupewarn: true,
-  icssCompatible: false,
-
-  resolvers: [],
-  rewrite: true,
-  verbose: false,
-};
-
-export type FileDependency = {
-  type: ModuleType;
-  id: string;
-  exports: ModuleMembers;
-};
-
-class Processor {
-  private log: (...args: any[]) => void;
-
-  normalize: (path: string) => string;
-
-  options: Options;
-
-  readonly files = new Map<string, ProcessingFile>();
-
-  readonly resolvedRequests = new Map<string, string>();
-
-  readonly graph = new Graph<ResolvedResource>();
-
-  private ids = new Map<any, any>();
-
-  readonly resolver: AsyncResolver;
-
-  constructor(opts: Partial<Options> = {}) {
-    /* eslint max-statements: [ "warn", 25 ] */
-    const options: Partial<Options> = {
-      ...DEFAULTS,
-      ...opts,
-    };
-
-    if (!path.isAbsolute(options.cwd!)) {
-      options.cwd = path.resolve(options.cwd!);
-    }
-
-    if (typeof options.namer !== 'function') {
-      options.namer = (file: string, selector: string) =>
-        `jz${slug(relative(options.cwd!, file))}_${selector}`;
-    }
-
-    this.options = options as Options;
-
-    this.log = options.verbose
-      ? // eslint-disable-next-line no-console
-        console.log.bind(console, '[processor]')
-      : // eslint-disable-next-line @typescript-eslint/no-empty-function
-        () => {};
-
-    this.resolver = mergeResolvers(this.options.resolvers);
-
-    this.normalize = normalizePath.bind(null, options.cwd);
-  }
-
+class Processor extends Graph {
   // Check if a file exists in the currently-processed set
   has(input: string) {
     return this.files.has(this.normalize(input));
@@ -155,10 +41,7 @@ class Processor {
 
     [...deps, source].forEach((file) => {
       this.log('invalidate()', file);
-
       this.files.get(file)!.valid = false;
-
-      this.ids.delete(file.toLowerCase());
     });
   }
 
@@ -191,82 +74,8 @@ class Processor {
   }
 
   // Get the ultimate output for specific files or the entire tree
-  async output(args: { to?: string; files?: string[] } = {}) {
-    let { files } = args;
-
-    if (!files) {
-      files = graphTiers(this.graph);
-    }
-
-    // Throw normalize values into a Set to remove dupes
-    files = Array.from(new Set(files));
-
-    // Verify that all requested files have been fully processed & succeeded
-    // See
-    //  - https://github.com/tivac/modular-css/issues/248
-    //  - https://github.com/tivac/modular-css/issues/324
-    await Promise.all(
-      files.map((file) => {
-        if (!this.files.has(file)) {
-          throw new Error(`Unknown file requested: ${file}`);
-        }
-
-        return this.files.get(file)!.result;
-      }),
-    );
-
-    // Rewrite relative URLs before adding
-    // Have to do this every time because target file might be different!
-    const results = [];
-
-    for (const dep of files) {
-      const file = this.files.get(dep)!;
-      if (file.module.type !== 'jazzscript') results.push(file.result!);
-    }
-
-    // Clone the first result if available to get valid source information
-    const root = results.length ? results[0].root!.clone() : postcss.root();
-
-    // Then destroy all its children before adding new ones
-    root.removeAll();
-
-    results.forEach((result) => {
-      // Add file path comment
-      const comment = postcss.comment({
-        text: relative(this.options.cwd, result.opts!.from!),
-
-        // Add a bogus-ish source property so postcss won't make weird-looking
-        // source-maps that break the visualizer
-        //
-        // https://github.com/postcss/postcss/releases/tag/5.1.0
-        // https://github.com/postcss/postcss/pull/761
-        // https://github.com/tivac/modular-css/pull/157
-        //
-        // @ts-ignore
-        source: {
-          ...result.root!.source,
-          end: result.root!.source!.start,
-        },
-      });
-
-      root.append([comment, ...result.root!.nodes!]);
-
-      const idx = root.index(comment);
-
-      // Need to manually insert a newline after the comment, but can only
-      // do that via whatever comes after it for some reason?
-      // I'm not clear why comment nodes lack a `.raws.after` property
-      //
-      // https://github.com/postcss/postcss/issues/44
-      if (root.nodes![idx + 1]) {
-        root.nodes![idx + 1].raws.before = '\n';
-      }
-    });
-
-    const result = await postcss([nullPlugin]).process(root, {
-      from: '', // FIXME
-      ...args,
-    });
+  output(args: { to?: string; files?: string[] } = {}) {
+    const result = super.output(args);
 
     Object.defineProperty(result, 'exports', {
       get: () => {
@@ -280,42 +89,13 @@ class Processor {
       },
     });
 
-    return result as Result & {
-      exports: Record<string, Record<string, string>>;
-    };
+    return result as any;
   }
 
   async add(_id: string, content?: string): Promise<File> {
+    await super.add(_id, content);
+
     const id = this.normalize(_id);
-
-    // Warn about potential dupes if an ID goes past we've seen before
-    const check = id.toLowerCase();
-    if (this.options.dupewarn) {
-      const other = this.ids.get(check);
-
-      if (other && other !== id) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `POTENTIAL DUPLICATE FILES:\n\t${relative(
-            this.options.cwd,
-            other,
-          )}\n\t${relative(this.options.cwd, id)}`,
-        );
-      }
-    }
-
-    this.ids.set(check, id);
-
-    this.log('_add()', id);
-
-    await this.walk(id, content);
-
-    const deps = [...this.graph.dependenciesOf(id), id];
-
-    // XXX: promise.all() ?
-    for (const dep of deps) {
-      await this.files.get(dep)!.process();
-    }
 
     const file = this.files.get(id)!;
     const { module, result, valid } = file;
@@ -343,9 +123,8 @@ class Processor {
       valid,
       values,
       selectors,
-      result: result!,
-      toICSS() {
-        return (file as JazzFile).toICSS();
+      get result() {
+        return result.toResult();
       },
       get exports() {
         return module.exports.toJSON();
@@ -367,7 +146,7 @@ class Processor {
     const id = this.normalize(_id);
     const imports = this.imports(id);
     const { result, module } = this.files.get(id)!;
-    const { css } = result;
+    const { css } = result.toResult();
 
     const grouped: Record<string, string[]> = {};
 
@@ -447,56 +226,6 @@ class Processor {
     }
     exports.push('');
     return exports.join('\n');
-  }
-
-  // Process files and walk their composition/value dependency tree to find
-  // new files we need to process
-  private async walk(name: string, content?: string) {
-    // No need to re-process files unless they've been marked invalid
-    if (this.files.get(name)?.valid) {
-      // Do want to wait until they're done being processed though
-      await this.files.get(name)!.ready;
-
-      return;
-    }
-
-    const resource: ResolvedResource = { file: name, content };
-    this.graph.addNode(name, resource);
-
-    this.log('before()', name);
-
-    const file = isStyleFile(name)
-      ? new JazzFile({
-          id: name,
-          content,
-          processor: this,
-          plugins: this.options.postcssPlugins,
-        })
-      : new ScriptFile(name, content, this);
-
-    this.files.set(name, file);
-
-    const deps = await file.collectDependencies();
-
-    for (const dep of deps) {
-      this.graph.addNode(dep.file, dep);
-      this.graph.addDependency(name, dep.file);
-    }
-
-    // Walk this node's dependencies, reading new files from disk as necessary
-    await Promise.all(
-      this.graph.dependenciesOf(name).map(async (dependency) => {
-        const depData = this.graph.getNodeData(dependency);
-        const dep = this.files.get(dependency);
-
-        await (dep?.valid
-          ? dep.ready
-          : this.add(depData.file, depData.content));
-      }),
-    );
-
-    // Mark the walk of this file & its dependencies complete
-    file.complete();
   }
 }
 

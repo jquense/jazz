@@ -208,12 +208,12 @@ export function runFixture(hrxFile: string) {
           const result = await processor.output({ to: 'output.css' });
 
           if (output) {
-            expect(result.css).toMatchCss(output);
+            expect(result.toResult().css).toMatchCss(output);
           }
           if (exports) {
             expect(result.exports).toEqual(exports);
           }
-        } catch (err) {
+        } catch (err: any) {
           if (error) expect(err.message).toMatch(error);
           else throw err;
         }

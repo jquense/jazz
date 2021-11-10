@@ -3,27 +3,28 @@
 import _Module from 'module';
 import path from 'path';
 
-import postcss, { LazyResult, Result, Root } from 'postcss';
+import postcss, { Plugin } from 'postcss';
 
+import { Root } from './Ast';
+import Evaluator from './Evaluate';
 import ModuleMembers from './ModuleMembers';
 import Scope from './Scope';
 import { getMembers } from './modules';
+import Parser from './parsers';
 import postcssParser from './parsers/jazz-postcss';
-import depGraphPlugin from './plugins/dependency-graph';
-import valuePlugin from './plugins/value-processing';
+import { walkTree } from './plugins/dependency-graph';
+import { defaultNamer } from './plugins/value-processing';
 import type {
-  ModularCSSOpts,
+  AsyncResolver,
   Module,
   ModuleType,
   ResolvedResource,
 } from './types';
-import { inferIdentifierScope, inferModuleType } from './utils/Scoping';
-
-// const directDependencies = (id: string, graph: any): string[] => {
-//   return (graph as any).outgoingEdges[id];
-// };
-
-type Processor = import('./Processor').default;
+import {
+  IdentifierScope,
+  inferIdentifierScope,
+  inferModuleType,
+} from './utils/Scoping';
 
 let fs: typeof import('fs');
 const loadFile = (id: string) => {
@@ -49,9 +50,9 @@ export abstract class ProcessingFile<TOut = any> {
 
   abstract result?: TOut;
 
-  abstract collectDependencies(): Promise<ResolvedResource[]>;
+  abstract collectDependencies(...args: any[]): Promise<ResolvedResource[]>;
 
-  abstract process(): Promise<void>;
+  abstract process(files: Map<string, ProcessingFile>): void;
 
   readonly requests: Map<string, string> = new Map();
 
@@ -73,159 +74,105 @@ export abstract class ProcessingFile<TOut = any> {
   }
 }
 
-const collectDependencies = postcss([depGraphPlugin]);
-
 interface JazzFileOptions {
   id: string;
-  content: string | Root | undefined;
-  processor: Processor;
-  plugins?: any[];
+  content: Root | string;
+  trace?: boolean;
+  resolver: AsyncResolver;
+  namer?: (file: string, selector: string) => string;
+  plugins?: Plugin[];
 }
 
-export class JazzFile extends ProcessingFile<Result> {
-  private before?: LazyResult;
+export class JazzFile extends ProcessingFile<Root> {
+  result?: Root;
 
-  private processed?: LazyResult;
+  private content: Root | null = null;
 
-  result?: Result;
+  private identifierScope: IdentifierScope;
 
-  private processor: Processor;
+  private namer: (selector: string) => string;
 
-  private content: string | Root;
+  private trace: any;
 
-  private dependencies?: ResolvedResource[];
+  private resolve: AsyncResolver;
 
-  private _icssResult: any;
-
-  private cssProcessor: ReturnType<typeof postcss>;
+  private pendingContent: Promise<Root> | Root;
 
   constructor(options: JazzFileOptions) {
     super(options.id);
 
-    this.content = options.content || loadFile(options.id);
-    this.processor = options.processor;
-
-    this.cssProcessor = postcss([...(options.plugins || []), valuePlugin]);
+    this.trace = options.trace;
+    this.resolve = options.resolver;
+    this.namer = (selector: string) => {
+      return (options.namer || defaultNamer)(options.id, selector);
+    };
+    this.identifierScope = inferIdentifierScope(options.id);
+    this.pendingContent = this.loadContent(options);
   }
 
-  get text(): string {
-    return typeof this.content === 'string'
-      ? this.content
-      : // @ts-ignore
-        this.content.source!.input.css;
+  loadContent(options: JazzFileOptions) {
+    return typeof options.content === 'string'
+      ? postcss(options.plugins || [])
+          .process(options.content, {
+            from: this.id,
+            parser: postcssParser as any,
+          })
+          .then((r: any) => r.root)
+      : options.content;
   }
 
   async collectDependencies() {
-    this.before = collectDependencies.process(
-      this.content!,
-      this.postcssOptions({
-        from: this.id,
-        // @ts-expect-error resolve allows async in before
-        resolve: (url) =>
-          this.processor.resolver(url, {
-            from: this.id,
-            cwd: this.processor.options.cwd,
-          }),
-      }) as any,
-    );
+    const messages = [] as any[];
+    this.content = await this.pendingContent;
 
-    await this.before;
+    await walkTree(this.content, messages, {
+      type: this.type,
+      from: this.id,
+      resolve: (url) => this.resolve(url, { from: this.id, cwd: 'xxx' }),
+    });
 
     const dependencies: ResolvedResource[] = [];
     // Add all the found dependencies to the graph
-    this.before.messages.forEach(({ plugin, dependency, request }) => {
+    messages.forEach(({ plugin, dependency, request }) => {
       if (plugin !== 'jazz-dependencies') {
         return;
       }
 
-      this.requests.set(request, this.processor.normalize(dependency.file));
+      this.requests.set(request, dependency.file);
 
       dependencies.push(dependency);
     });
 
-    this.dependencies = dependencies;
-
     return dependencies;
   }
 
-  async process(): Promise<void> {
+  process(files: Map<string, ProcessingFile>): void {
     if (this.result) return;
 
-    if (!this.processed)
-      this.processed = this.cssProcessor.process(
-        this.before!,
-        this.postcssOptions({
-          from: this.id,
-          namer: this.processor.options.namer,
-        }) as any,
-      );
+    const parser = Parser.get(this.content!, { trace: this.trace });
+    const { module } = this;
 
-    this.result = await this.processed;
-  }
+    const { exports, icss } = Evaluator.evaluate(this.content!, {
+      isCss: module.type === 'css',
+      namer: this.namer,
+      loadModule: (request: string) => {
+        const resolved = this.requests.get(request) || false;
 
-  private postcssOptions({
-    from,
-    ...args
-  }: { from: string } & Partial<ModularCSSOpts>) {
-    const { options, graph, files } = this.processor;
-    const modules = new Map<string, Module>();
-
-    files.forEach((value, key) => {
-      modules.set(key, value.module);
+        return {
+          module: resolved ? files.get(resolved)!.module : undefined,
+          // FIXME: this is weird here, if it's absolute tho tests are hard
+          resolved, // && path.relative(path.dirname(from), resolved),
+        };
+      },
+      initialScope: module.scope,
+      identifierScope: this.identifierScope,
+      parser,
     });
 
-    const identifierScope = inferIdentifierScope(from);
+    module.icss = icss;
+    module.exports.addAll(exports);
 
-    return {
-      ...options,
-      from,
-      modules,
-      moduleGraph: graph,
-      icssCompatible: false,
-      identifierScope,
-      parser: postcssParser,
-      resolve: (url: string) => {
-        return this.requests.get(url);
-      },
-      ...args,
-    };
-  }
-
-  toICSS() {
-    if (!this._icssResult) {
-      this._icssResult = postcss([
-        {
-          postcssPlugin: 'jazz-icss-output',
-          Once: (root) => {
-            for (const dep of this.dependencies!) {
-              root.prepend(
-                postcss.atRule({
-                  name: 'icss-import',
-                  params: `"${path.relative(
-                    path.dirname(this.id),
-                    dep.file,
-                  )}"`,
-                  // nodes: [postcss.decl({ prop: '____a', value: 'a' })],
-                }),
-              );
-            }
-
-            const entries = Object.entries(this.module.exports.toJSON());
-            if (entries.length) {
-              const exportNode: any = postcss.atRule({
-                name: 'icss-export',
-                nodes: entries.map(([prop, value]) =>
-                  postcss.decl({ prop, value }),
-                ),
-              });
-              root.append(exportNode);
-            }
-          },
-        },
-      ]).process(this.result!, { from: this.id });
-    }
-
-    return this._icssResult;
+    this.result = this.content!;
   }
 }
 
@@ -236,11 +183,7 @@ export class ScriptFile extends ProcessingFile<Record<string, unknown>> {
 
   private content: string;
 
-  constructor(
-    id: string,
-    content: string | undefined,
-    private processor: Processor,
-  ) {
+  constructor(id: string, content: string | undefined) {
     super(id, 'jazzscript');
 
     this.content = content || loadFile(id);
@@ -251,11 +194,10 @@ export class ScriptFile extends ProcessingFile<Record<string, unknown>> {
   }
 
   collectDependencies() {
-    // this.content = this.processor.loadFile();
     return Promise.resolve([]);
   }
 
-  async process(): Promise<void> {
+  process(): void {
     if (this.result) return;
     // @ts-ignore
     this.m._compile(this.content, this.id);
@@ -264,43 +206,3 @@ export class ScriptFile extends ProcessingFile<Record<string, unknown>> {
     this.result = this.m.exports;
   }
 }
-
-// export class TypeScriptFile extends ScriptFile {
-//   constructor(
-//     private id: string,
-//     private content: string,
-//     private processor: Processor,
-//   ) {
-//     super('jazzscript');
-
-//     this.text = content;
-
-//     this.m = new _Module(id, module);
-//     // @ts-ignore
-//     this.m.paths = _Module._nodeModulePaths(path.dirname(id));
-//     this.m.filename = id;
-//   }
-
-//   collectDependencies() {
-//     return Promise.resolve([]);
-//   }
-
-//   async process(): Promise<void> {
-//     if (this.result) return;
-//     // @ts-ignore
-//     this.m._compile(this.content, this.id);
-//     this.module.exports = getMembers(this.m.exports);
-
-//     this.result = this.m.exports;
-//   }
-// }
-
-// export function createFile(processor: Processor, id: string) {}
-
-// class FileManager extends Map<string, ProcessingFile> {
-//   constructor() {
-//     super();
-//   }
-
-//   load(id: string): ProcessingFile
-// }

@@ -30,7 +30,7 @@ export type Options = {
 function catchAndThrowFromNode<T>(node: Ast.Node, fn: () => T): T {
   try {
     return fn();
-  } catch (err) {
+  } catch (err: any) {
     throw node.error(err.message);
   }
 }

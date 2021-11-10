@@ -2,7 +2,7 @@ import { Volume } from 'memfs';
 import postcss from 'postcss';
 import tailwind from 'tailwindcss';
 
-import { createMemoryResolver, css, runFixture } from '../../test/helpers';
+import { createMemoryResolver, css } from '../../test/helpers';
 import postcssParser from '../parsers/jazz-postcss';
 import Plugin from '../postcss-plugin';
 
@@ -34,6 +34,7 @@ describe('postcss-plugin', () => {
         ...(options.pre || []),
         Plugin({
           ...options,
+          cwd: '/',
           // loadFile: (file: string) => fs.readFileSync(file).toString(),
           namer: (_: string, selector: string) => `m_${selector}`,
           resolvers: [createMemoryResolver(fs)],
@@ -64,11 +65,12 @@ describe('postcss-plugin', () => {
     );
 
     expect(details.css).toMatchCss(`
+      /* colors.jazz */
+      /* entry.jazz */
       .m_foo {
         color: red;
         background-color: url(red/'hi');
       }
-
       .m_foo > .m_child {
         color: red
       }
@@ -90,6 +92,7 @@ describe('postcss-plugin', () => {
     );
 
     expect(details.css).toMatchCss(`
+      /* entry.jazz */
       .m_foo {
         color: ${Math.PI}
       }
@@ -111,7 +114,7 @@ describe('postcss-plugin', () => {
         }
       `,
       );
-    } catch (err) {
+    } catch (err: any) {
       // console.log(err);
       expect(trimLineEnd(err.showSourceCode(false))).toMatchInlineSnapshot(`
         "  1 |
@@ -135,7 +138,7 @@ describe('postcss-plugin', () => {
         }
       `,
       );
-    } catch (err) {
+    } catch (err: any) {
       // @prettier-ignore
       expect(trimLineEnd(err.showSourceCode(false))).toMatchInlineSnapshot(`
         "  1 |
@@ -174,6 +177,8 @@ describe('postcss-plugin', () => {
     // });
 
     expect(details.css).toMatchCss(`
+      /* colors.jazz */
+      /* entry.jazz */
       .m_foo {
         color: red;
       }
@@ -204,6 +209,8 @@ describe('postcss-plugin', () => {
     );
 
     expect(details.css).toMatchCss(`
+      /* colors.jazz */
+      /* entry.jazz */
       .m_foo {
         color: #fee2e2;
         background-color: url(red/'hi');

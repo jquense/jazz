@@ -10,7 +10,7 @@ function trimLineEnd(str: string) {
     .join('\n');
 }
 
-xdescribe('Compiler', () => {
+describe('Compiler', () => {
   function get(options: Partial<Options> = {}) {
     const fs = Volume.fromJSON({
       '/colors.jazz': `
@@ -104,7 +104,7 @@ xdescribe('Compiler', () => {
         }
       `,
       );
-    } catch (err) {
+    } catch (err: any) {
       // console.log(err);
       expect(trimLineEnd(err.showSourceCode(false))).toMatchInlineSnapshot(`
         "  1 |
@@ -128,7 +128,7 @@ xdescribe('Compiler', () => {
         }
       `,
       );
-    } catch (err) {
+    } catch (err: any) {
       // @prettier-ignore
       expect(trimLineEnd(err.showSourceCode(false))).toMatchInlineSnapshot(`
         "  1 |
@@ -173,7 +173,7 @@ xdescribe('Compiler', () => {
     `);
   });
 
-  it('should output ICSS ', async () => {
+  xit('should output ICSS ', async () => {
     const processor = get();
 
     const details = await processor.add(

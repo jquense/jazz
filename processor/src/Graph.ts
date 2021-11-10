@@ -3,13 +3,13 @@
 
 import path from 'path';
 
-import { DepGraph as Graph } from 'dependency-graph';
+import { DepGraph } from 'dependency-graph';
 import postcss, { CssSyntaxError, Root as PostCSSRoot } from 'postcss';
 // @ts-ignore
 import slug from 'unique-slug';
 
 import { Root } from './Ast';
-import { JazzFile, ProcessingFile, ScriptFile } from './File2';
+import { JazzFile, ProcessingFile, ScriptFile } from './File';
 import ModuleMembers from './ModuleMembers';
 import mergeResolvers from './resolvers';
 import type {
@@ -36,7 +36,7 @@ export type {
 
 // Get a relative version of an absolute path w/ cross-platform/URL-friendly
 // directory separators
-const relative = (cwd: string, file: string) =>
+export const relative = (cwd: string, file: string) =>
   path.relative(cwd, file).replace(sepRegex, '/');
 
 const normalizePath = (cwd: string, file: string) => {
@@ -46,7 +46,6 @@ const normalizePath = (cwd: string, file: string) => {
 export type Options = {
   cwd: string;
   map: boolean;
-  dupewarn: boolean;
   resolvers: Resolver[] | Array<Resolver | AsyncResolver>;
   icssCompatible: boolean;
   postcssPlugins?: any[];
@@ -58,7 +57,6 @@ const DEFAULTS = {
   cwd: process.cwd(),
   map: false,
 
-  dupewarn: true,
   icssCompatible: false,
 
   resolvers: [],
@@ -72,8 +70,8 @@ export type FileDependency = {
   exports: ModuleMembers;
 };
 
-class Processor {
-  private log: (...args: any[]) => void;
+class Graph {
+  protected log: (...args: any[]) => void;
 
   normalize: (path: string) => string;
 
@@ -83,7 +81,7 @@ class Processor {
 
   readonly resolvedRequests = new Map<string, string>();
 
-  readonly graph = new Graph<ResolvedResource>();
+  readonly graph = new DepGraph<ResolvedResource>();
 
   readonly resolver: AsyncResolver;
 
@@ -116,10 +114,10 @@ class Processor {
     this.normalize = normalizePath.bind(null, options.cwd);
   }
 
-  async add(_id: string, content?: string | Root): Promise<void> {
+  async add(_id: string, content?: string | Root): Promise<any> {
     const id = this.normalize(_id);
 
-    this.log('_add()', id);
+    this.log('add()', id);
 
     await this.walk(id, content);
 
@@ -132,7 +130,7 @@ class Processor {
 
   // Process files and walk their composition/value dependency tree to find
   // new files we need to process
-  private async walk(name: string, content?: string | Root) {
+  protected async walk(name: string, content?: string | Root) {
     // No need to re-process files unless they've been marked invalid
     if (this.files.get(name)?.valid) {
       // Do want to wait until they're done being processed though
@@ -223,7 +221,7 @@ class Processor {
         },
       });
 
-      root.append([comment, ...root!.nodes!]);
+      root.append([comment, ...result!.nodes!]);
 
       const idx = root.index(comment as any);
 
@@ -241,4 +239,4 @@ class Processor {
   }
 }
 
-export default Processor;
+export default Graph;

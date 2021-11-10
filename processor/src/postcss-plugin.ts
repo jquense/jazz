@@ -32,7 +32,8 @@ const plugin = (opts = {}): Plugin => ({
 
     // @ts-ignore
     root[processed] = true;
-    root.replaceWith(output);
+    root.removeAll();
+    root.append(...output.nodes);
   },
 });
 
