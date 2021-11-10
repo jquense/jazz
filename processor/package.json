@@ -6,7 +6,7 @@
     "type": "git",
     "url": "https://github.com/jquense/jazz.git"
   },
-  "author": "4Catalyzer",
+  "author": "Jason Quense",
   "license": "MIT",
   "scripts": {
     "build": "yarn parser && 4c build src",

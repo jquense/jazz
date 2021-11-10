@@ -37,7 +37,6 @@ const loadFile = (id: string) => {
 };
 
 export abstract class ProcessingFile<TOut = any> {
-  // abstract readonly text: string;
   readonly id: string;
 
   valid = true;

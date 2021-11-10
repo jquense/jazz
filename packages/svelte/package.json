@@ -5,7 +5,7 @@
   "repository": {
     "directory": "packages/svelte",
     "type": "git",
-    "url": "https://github.com/jquense/unnamed-css-preprocessor.git"
+    "url": "https://github.com/jquense/jazz.git"
   },
   "author": "4Catalyzer",
   "license": "MIT",

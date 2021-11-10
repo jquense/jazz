@@ -1,0 +1,32 @@
+{
+  "name": "@jazzcss/reduce-calc",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": {
+    "directory": "packages/reduce-calc",
+    "type": "git",
+    "url": "https://github.com/jquense/jazz.git"
+  },
+  "author": "4Catalyzer",
+  "license": "MIT",
+  "scripts": {
+    "tdd": "jest --watch",
+    "test": "jest"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "jest": {
+    "preset": "@4c/jest-preset",
+    "testEnvironment": "node"
+  },
+  "devDependencies": {
+    "@4c/cli": "^2.0.1",
+    "@4c/jest-preset": "^1.4.5",
+    "@4c/prettier-config": "^1.1.0",
+    "jest": "^27.0.4"
+  },
+  "dependencies": {
+    "jazzcss": "*"
+  }
+}

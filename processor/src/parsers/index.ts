@@ -75,7 +75,7 @@ class Parser {
 
     try {
       return parse(input, parseOptions);
-    } catch (err) {
+    } catch (err: any) {
       if (tracer.getBacktraceString) console.log(tracer.getBacktraceString());
 
       if (!parseOptions.source || !err.location) throw err;
