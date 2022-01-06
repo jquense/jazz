@@ -5,7 +5,7 @@
 
   const source = options.source || new Input(input)
 
-function getSource() {
+  function getSource() {
     let { startPos, endPos } = options;
 
     if (!options.source || !options.offset) {
@@ -907,13 +907,4 @@ call_expressions
   = head:call_expression _ tail:(',' _ call:call_expression { return call })* {
     return [head, ...tail]
   }
-
-
-// mixin_declaration
-//   = MixinDeclaration
-
-// function_declaration
-//   = comment* name:Ident"(" _ params:Expression _ ")" {
-//     return new Ast.CallExpressionDeclaration(name[0], Ast.List.wrap([params));
-//   }
 
